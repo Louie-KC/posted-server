@@ -3,11 +3,11 @@ use posted_mysql;
 DROP TABLE IF EXISTS PostLike;
 DROP TABLE IF EXISTS CommentLike;
 DROP TABLE IF EXISTS Comment;
-DROP TABLE IF EXISTS Account;
 DROP TABLE IF EXISTS Post;
+DROP TABLE IF EXISTS Account;
 
 CREATE TABLE Account (
-    id INT NOT NULL AUTO_INCREMENT,
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     username VARCHAR(127) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     PRIMARY KEY (id),
@@ -15,8 +15,8 @@ CREATE TABLE Account (
 );
 
 CREATE TABLE Post (
-    id INT NOT NULL AUTO_INCREMENT,
-    poster_id INT NOT NULL,
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    poster_id BIGINT UNSIGNED NOT NULL,
     title VARCHAR(127) NOT NULL,
     body VARCHAR(1024) NOT NULL,
     post_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
@@ -25,11 +25,11 @@ CREATE TABLE Post (
 );
 
 CREATE TABLE Comment (
-    id INT NOT NULL AUTO_INCREMENT,
-    post_id INT NOT NULL,
-    commenter_id INT NOT NULL,
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    post_id BIGINT UNSIGNED NOT NULL,
+    commenter_id BIGINT UNSIGNED NOT NULL,
     body VARCHAR(255),
-    comment_reply_id INT,
+    comment_reply_id BIGINT UNSIGNED,
     PRIMARY KEY (id),
     FOREIGN KEY (post_id) REFERENCES Post(id),
     FOREIGN KEY (commenter_id) REFERENCES Account(id),
@@ -37,16 +37,16 @@ CREATE TABLE Comment (
 );
 
 CREATE TABLE PostLike (
-    post_id INT NOT NULL,
-    account_id INT NOT NULL,
+    post_id BIGINT UNSIGNED NOT NULL,
+    account_id BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (post_id, account_id),
     FOREIGN KEY (post_id) REFERENCES Post(id),
     FOREIGN KEY (account_id) REFERENCES Account(id)
 );
 
 CREATE TABLE CommentLike (
-    comment_id INT NOT NULL,
-    account_id INT NOT NULL,
+    comment_id BIGINT UNSIGNED NOT NULL,
+    account_id BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (comment_id, account_id),
     FOREIGN KEY (comment_id) REFERENCES Comment(id),
     FOREIGN KEY (account_id) REFERENCES Account(id)
