@@ -40,9 +40,7 @@ pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpR
         Err(DBError::UnexpectedRowsAffected(_, _)) => {
             HttpResponse::BadRequest().reason("Username is taken").finish()
         }
-        Err(DBError::SQLXError(_)) => {
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
 
@@ -109,8 +107,8 @@ pub async fn get_post(db: Data<Database>, path: Path<String>) -> HttpResponse {
     let result = db.read_post_by_id(post_id).await;
     match result {
         Ok(post) => HttpResponse::Ok().json(post),
+        Err(DBError::NoResult) => HttpResponse::BadRequest().reason("Invalid post_id").finish(),
         Err(_) => HttpResponse::InternalServerError().finish()
-        // TODO: Check for and report post not found (DBError)
     }
 }
 
@@ -170,7 +168,7 @@ pub async fn make_post_comment(db: Data<Database>, data: Json<Comment>, auth: Be
         Err(DBError::UnexpectedRowsAffected(_, _)) => {
             HttpResponse::BadRequest().reason("Comment data was invalid").finish()
         },
-        Err(DBError::SQLXError(_)) => HttpResponse::InternalServerError().finish()
+        Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
 

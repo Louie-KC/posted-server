@@ -29,7 +29,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -43,7 +43,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -57,7 +57,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -69,7 +69,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -81,7 +81,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -101,7 +101,7 @@ impl Database {
         
         match result {
             Ok(id) => Ok(id.try_get(0)?),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -118,7 +118,7 @@ impl Database {
             .await;
         match result {
             Ok(posts) => Ok(posts),
-            Err(e)  => Err(log_error(DBError::SQLXError(e)))
+            Err(e)  => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -135,7 +135,7 @@ impl Database {
             .await;
         match result {
             Ok(post) => Ok(post),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(DBError::from(e))
         }
     }
 
@@ -152,7 +152,7 @@ impl Database {
             .await;
         match result {
             Ok(posts) => Ok(posts),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -170,7 +170,7 @@ impl Database {
 
         match result {
             Ok(comments) => Ok(comments),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -187,7 +187,7 @@ impl Database {
             .await;
         match result {
             Ok(comment) => Ok(comment),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -205,7 +205,7 @@ impl Database {
 
         match result {
             Ok(comments) => Ok(comments),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -219,7 +219,7 @@ impl Database {
             .await;
         match result {
             Ok(row) => Ok(row.try_get(0)?),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -233,11 +233,27 @@ impl Database {
             .await;
         match result {
             Ok(row) => Ok(row.try_get(0)?),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
-    // TODO: Update
+    // Update
+
+    pub async fn update_account_password(&self, account_id: u64, password_hash: &str) -> DBResult<()> {
+        let result = sqlx::query(
+            "UPDATE Account
+            SET password_hash = ?
+            WHERE id = ?")
+            .bind(password_hash)
+            .bind(account_id)
+            .execute(&self.conn_pool)
+            .await;
+    
+        match result {
+            Ok(res) => expected_rows_affected(res, 1),
+            Err(err) => Err(log_error(DBError::from(err)))
+        }
+    }
 
     // Delete
 
@@ -249,7 +265,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -261,7 +277,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -276,7 +292,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 
@@ -291,7 +307,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(log_error(DBError::SQLXError(e)))
+            Err(e) => Err(log_error(DBError::from(e)))
         }
     }
 }

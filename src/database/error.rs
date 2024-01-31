@@ -2,11 +2,15 @@
 pub enum DBError {
     SQLXError(sqlx::Error),
     UnexpectedRowsAffected(u64, u64),
+    NoResult
 }
 
 impl From<sqlx::Error> for DBError {
     fn from(err: sqlx::Error) -> Self {
-        DBError::SQLXError(err)
+        match err {
+            sqlx::Error::RowNotFound => DBError::NoResult,
+            _ => DBError::SQLXError(err),
+        }
     }
 }
 
@@ -17,6 +21,7 @@ impl std::fmt::Display for DBError {
             DBError::UnexpectedRowsAffected(expected, actual) => {
                 format!("Expected '{}' rows to change, saw '{}'", expected, actual)
             },
+            DBError::NoResult => "A query resulted in no rows being returned".to_string()
         };
         write!(f, "{}", output)
     }
