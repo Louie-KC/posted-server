@@ -1,8 +1,11 @@
+mod api;
 mod database;
 mod models;
 
 use std::env;
 use dotenv::dotenv;
+use actix_web::{App, HttpServer, web};
+
 use crate::database::database::Database;
 
 #[actix_web::main]
@@ -11,15 +14,19 @@ async fn main() -> std::io::Result<()> {
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set");
     let database = Database::new(&db_url).await;
 
-    match database.read_posts(5).await {
-        Ok(posts) => posts.iter().for_each(|post| println!("{:?}", post)),
-        Err(e) => println!("read_posts error: {:?}", e)
-    };
+    let data = web::Data::new(database);
 
-    match database.read_post_likes(1).await {
-        Ok(likes) => println!("likes: {}", likes),
-        Err(e) => println!("read_post_likes error: {:?}", e)
-    }
-    
-    Ok(())
+    let server_addr = "0.0.0.0";
+    let server_port = 8080;
+    let app = HttpServer::new(move ||
+        App::new()
+            .app_data(data.clone())
+            .configure(api::api::config)
+    )
+    .bind((server_addr, server_port))?
+    .run();
+
+    println!("Server running at http://{}:{}/", server_addr, server_port);
+
+    app.await
 }

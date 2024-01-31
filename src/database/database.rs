@@ -1,7 +1,7 @@
 use sqlx::{MySql, Pool, Row};
 use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
 
-use crate::models::{Comment, CommentLike, Post, PostLike};
+use crate::models::{Account, Comment, CommentLike, Post, PostLike};
 
 #[derive(Debug)]
 pub enum DBError {
@@ -29,22 +29,6 @@ impl Database {
         Database { conn_pool: pool }
     }
 
-    // pub async fn login(&self, username: &str, password_hash: &str) -> DBResult<()> {
-    //     match sqlx::query(
-    //         "SELECT id
-    //         FROM Account
-    //         WHERE username = ?
-    //         AND password_hash = ?;")
-    //         .bind(username)
-    //         .bind(password_hash)
-    //         .fetch_one(&self.conn_pool)
-    //         .await
-    //     {
-    //         Ok(_)  => Ok(()),
-    //         Err(_) => Err(())
-    //     }
-    // }
-
     // Create
 
     pub async fn create_account(&self, username: &str, password_hash: &str) -> DBResult<()> {
@@ -60,7 +44,7 @@ impl Database {
     }
 
 
-    pub async fn create_post(&self, username: &str, post: Post) -> DBResult<()> {
+    pub async fn create_post(&self, post: Post) -> DBResult<()> {
         match sqlx::query("INSERT INTO Post (poster_id, title, body) VALUES (?, ?, ?);")
             .bind(post.poster_id)
             .bind(post.title)
@@ -112,6 +96,24 @@ impl Database {
     }
 
     // Read
+
+    pub async fn read_account_id(&self, details: Account) -> DBResult<u64> {
+        let result = sqlx::query(
+            "SELECT id
+            FROM Account
+            WHERE username = ?
+            AND password_hash = ?
+            LIMIT 1;")
+            .bind(details.username)
+            .bind(details.password_hash)
+            .fetch_one(&self.conn_pool)
+            .await;
+        
+        match result {
+            Ok(id) => Ok(id.try_get(0)?),
+            Err(e) => Err(DBError::SQLXError(e))
+        }
+    }
 
     pub async fn read_posts(&self, max_posts: u64) -> DBResult<Vec<Post>> {
         let result = sqlx::query_as::<_, Post>(
