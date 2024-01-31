@@ -1,7 +1,7 @@
 use sqlx::{MySql, Pool, Row};
 use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
 
-use crate::models::{Account, Comment, CommentLike, Post, PostLike};
+use crate::models::{Account, Comment, Post};
 
 #[derive(Debug)]
 pub enum DBError {
@@ -71,10 +71,10 @@ impl Database {
         }
     }
 
-    pub async fn create_post_like(&self, like: PostLike) -> DBResult<()> {
-        match sqlx::query("INSERT INTO PostLike (post_id, account_id) values (?, ?);")
-            .bind(like.post_id)
-            .bind(like.account_id)
+    pub async fn create_post_like(&self, post_id: u64, account_id: u64) -> DBResult<()> {
+        match sqlx::query("INSERT IGNORE INTO PostLike (post_id, account_id) values (?, ?);")
+            .bind(post_id)
+            .bind(account_id)
             .execute(&self.conn_pool)
             .await
         {
@@ -83,10 +83,10 @@ impl Database {
         }
     }
 
-    pub async fn create_comment_like(&self, like: CommentLike) -> DBResult<()> {
-        match sqlx::query("INSERT INTO CommentLike (comment_id, account_id) values (?, ?);")
-            .bind(like.comment_id)
-            .bind(like.account_id)
+    pub async fn create_comment_like(&self, comment_id: u64, account_id: u64) -> DBResult<()> {
+        match sqlx::query("INSERT IGNORE INTO CommentLike (comment_id, account_id) values (?, ?);")
+            .bind(comment_id)
+            .bind(account_id)
             .execute(&self.conn_pool)
             .await
         {
@@ -117,8 +117,11 @@ impl Database {
 
     pub async fn read_posts(&self, max_posts: u64) -> DBResult<Vec<Post>> {
         let result = sqlx::query_as::<_, Post>(
-            "SELECT *
-            FROM Post
+            "SELECT p.*, CAST(count(pl.account_id) AS UNSIGNED) AS 'likes'
+            FROM Post p
+            LEFT JOIN PostLike pl
+            ON p.id = pl.post_id
+            GROUP BY p.id
             LIMIT ?;")
             .bind(max_posts)
             .fetch_all(&self.conn_pool)
@@ -129,11 +132,31 @@ impl Database {
         }
     }
 
+    pub async fn read_posts_by_user(&self, user_id: u64) -> DBResult<Vec<Post>> {
+        let result = sqlx::query_as::<_, Post>(
+            "SELECT p.*, CAST(count(pl.account_id) AS UNSIGNED) AS 'likes'
+            FROM Post p
+            LEFT JOIN PostLike pl
+            ON p.id = pl.post_id
+            WHERE p.poster_id = ?
+            GROUP BY p.id;")
+            .bind(user_id)
+            .fetch_all(&self.conn_pool)
+            .await;
+        match result {
+            Ok(posts) => Ok(posts),
+            Err(e) => Err(DBError::SQLXError(e))
+        }
+    }
+
     pub async fn read_comments_of_post(&self, post_id: u64) -> DBResult<Vec<Comment>> {
         let result = sqlx::query_as::<_, Comment>(
-            "SELECT *
-            FROM Comment
-            WHERE post_id = ?;")
+            "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
+            FROM Comment c
+            LEFT JOIN CommentLike cl
+            ON c.id = cl.comment_id
+            WHERE c.post_id = ?
+            GROUP BY c.id")
             .bind(post_id)
             .fetch_all(&self.conn_pool)
             .await;
@@ -146,9 +169,12 @@ impl Database {
 
     pub async fn read_comments_by_user(&self, user_id: u64) -> DBResult<Vec<Comment>> {
         let result = sqlx::query_as::<_, Comment>(
-            "SELECT *
-            FROM Comment
-            WHERE commenter_id = ?;")
+            "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
+            FROM Comment c
+            LEFT JOIN CommentLike cl
+            ON c.id = cl.comment_id
+            WHERE c.commenter_id = ?
+            GROUP BY c.id")
             .bind(user_id)
             .fetch_all(&self.conn_pool)
             .await;
@@ -246,9 +272,10 @@ impl Database {
     }
 }
 
-fn expected_rows_affected(result: MySqlQueryResult, expected_rows: usize) -> DBResult<()> {
-    match result.rows_affected() {
-        expected_rows => Ok(()),
-        n => Err(DBError::UnexpectedRowsAffected(expected_rows, n as usize))
+fn expected_rows_affected(result: MySqlQueryResult, expected_rows: u64) -> DBResult<()> {
+    if result.rows_affected() == expected_rows {
+        Ok(())
+    } else {
+        Err(DBError::UnexpectedRowsAffected(expected_rows as usize, result.rows_affected() as usize))
     }
 }
