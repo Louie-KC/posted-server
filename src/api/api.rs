@@ -4,7 +4,7 @@ use actix_web_httpauth::extractors::bearer::BearerAuth;
 
 use serde_json::json;
 
-use crate::database::database::{Database, DBError};
+use crate::database::{database::Database, error::DBError};
 use crate::models::*;
 
 pub fn config(config: &mut ServiceConfig) -> () {
@@ -154,10 +154,7 @@ pub async fn get_user_comments(db: Data<Database>, path: Path<String>) -> HttpRe
     let result = db.read_comments_by_user(user_id).await;
     match result {
         Ok(comments) => HttpResponse::Ok().json(comments),
-        Err(e) => {
-            println!("{:?}", e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
 

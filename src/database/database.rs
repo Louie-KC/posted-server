@@ -1,19 +1,9 @@
+use log::warn;
 use sqlx::{MySql, Pool, Row};
 use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
 
 use crate::models::{Account, Comment, Post};
-
-#[derive(Debug)]
-pub enum DBError {
-    SQLXError(sqlx::Error),
-    UnexpectedRowsAffected(usize, usize),
-}
-
-impl From<sqlx::Error> for DBError {
-    fn from(err: sqlx::Error) -> Self {
-        DBError::SQLXError(err)
-    }
-}
+use crate::database::error::DBError;
 
 type DBResult<T> = Result<T, DBError>;
 
@@ -39,7 +29,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -53,7 +43,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -67,7 +57,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -79,7 +69,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -91,7 +81,7 @@ impl Database {
             .await
         {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -111,7 +101,7 @@ impl Database {
         
         match result {
             Ok(id) => Ok(id.try_get(0)?),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -128,7 +118,7 @@ impl Database {
             .await;
         match result {
             Ok(posts) => Ok(posts),
-            Err(e)  => Err(DBError::SQLXError(e))
+            Err(e)  => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -145,7 +135,7 @@ impl Database {
             .await;
         match result {
             Ok(posts) => Ok(posts),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -163,7 +153,7 @@ impl Database {
 
         match result {
             Ok(comments) => Ok(comments),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -181,7 +171,7 @@ impl Database {
 
         match result {
             Ok(comments) => Ok(comments),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -195,7 +185,7 @@ impl Database {
             .await;
         match result {
             Ok(row) => Ok(row.try_get(0)?),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -209,7 +199,7 @@ impl Database {
             .await;
         match result {
             Ok(row) => Ok(row.try_get(0)?),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -225,7 +215,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -237,7 +227,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -252,7 +242,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 
@@ -267,7 +257,7 @@ impl Database {
             .await;
         match result {
             Ok(res) => expected_rows_affected(res, 1),
-            Err(e) => Err(DBError::SQLXError(e))
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }
 }
@@ -276,6 +266,11 @@ fn expected_rows_affected(result: MySqlQueryResult, expected_rows: u64) -> DBRes
     if result.rows_affected() == expected_rows {
         Ok(())
     } else {
-        Err(DBError::UnexpectedRowsAffected(expected_rows as usize, result.rows_affected() as usize))
+        Err(log_error(DBError::UnexpectedRowsAffected(expected_rows, result.rows_affected())))
     }
+}
+
+fn log_error(err: DBError) -> DBError {
+    warn!("{}", err);
+    err
 }
