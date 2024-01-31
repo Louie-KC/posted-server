@@ -122,6 +122,23 @@ impl Database {
         }
     }
 
+    pub async fn read_post_by_id(&self, post_id: u64) -> DBResult<Post> {
+        let result = sqlx::query_as::<_, Post>(
+            "SELECT p.*, CAST(COUNT(pl.account_id) AS UNSIGNED) AS 'likes'
+            FROM Post p
+            LEFT JOIN PostLike pl
+            ON p.id = pl.post_id
+            WHERE p.id = ?
+            GROUP BY p.id;")
+            .bind(post_id)
+            .fetch_one(&self.conn_pool)
+            .await;
+        match result {
+            Ok(post) => Ok(post),
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
+        }
+    }
+
     pub async fn read_posts_by_user(&self, user_id: u64) -> DBResult<Vec<Post>> {
         let result = sqlx::query_as::<_, Post>(
             "SELECT p.*, CAST(count(pl.account_id) AS UNSIGNED) AS 'likes'
@@ -153,6 +170,23 @@ impl Database {
 
         match result {
             Ok(comments) => Ok(comments),
+            Err(e) => Err(log_error(DBError::SQLXError(e)))
+        }
+    }
+
+    pub async fn read_comment_by_id(&self, comment_id: u64) -> DBResult<Post> {
+        let result = sqlx::query_as::<_, Post>(
+            "SELECT c.*, CAST(COUNT(cl.account_id) AS UNSIGNED) AS 'likes'
+            FROM Comment c
+            LEFT JOIN CommentLike cl
+            ON c.id = cl.comment_id
+            WHERE c.id = ?
+            GROUP BY c.id;")
+            .bind(comment_id)
+            .fetch_one(&self.conn_pool)
+            .await;
+        match result {
+            Ok(comment) => Ok(comment),
             Err(e) => Err(log_error(DBError::SQLXError(e)))
         }
     }

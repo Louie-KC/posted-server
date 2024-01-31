@@ -1,4 +1,4 @@
-use actix_web::{get, post, web, HttpResponse};
+use actix_web::{delete, get, post, web, HttpResponse};
 use actix_web::web::{Data, Json, Path, ServiceConfig};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 
@@ -13,8 +13,11 @@ pub fn config(config: &mut ServiceConfig) -> () {
             .service(login)
             .service(get_posts)
             .service(create_post)
+            .service(get_post)
+            .service(delete_post)
             .service(get_post_comments)
             .service(make_post_comment)
+            .service(delete_comment)
             .service(get_user_posts)
             .service(get_user_comments)
             .service(vote_on_post)
@@ -96,11 +99,50 @@ pub async fn create_post(db: Data<Database>, data: Json<Post>, auth: BearerAuth)
     }
 }
 
+#[get("/posts/{post_id}")]
+pub async fn get_post(db: Data<Database>, path: Path<String>) -> HttpResponse {
+    let post_id = match path.parse::<u64>() {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
+    };
+
+    let result = db.read_post_by_id(post_id).await;
+    match result {
+        Ok(post) => HttpResponse::Ok().json(post),
+        Err(_) => HttpResponse::InternalServerError().finish()
+        // TODO: Check for and report post not found (DBError)
+    }
+}
+
+#[delete("/posts/{post_id}")]
+pub async fn delete_post(db: Data<Database>, path: Path<String>, auth: BearerAuth) -> HttpResponse {
+    let post_id = match path.parse::<u64>() {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
+    };
+
+    let post = match db.read_post_by_id(post_id).await {
+        Ok(p) => p,
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
+    };
+
+    // TODO: Proper auth token check
+    if auth.token().ne(&post.poster_id.to_string()) {
+        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    }
+
+    let result = db.delete_post(post_id).await;
+    match result {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
 #[get("/posts/{post_id}/comments")]
 pub async fn get_post_comments(db: Data<Database>, path: Path<String>) -> HttpResponse {
     let post_id = match path.parse::<u64>() {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
     let result = db.read_comments_of_post(post_id).await;
     match result {
@@ -132,11 +174,35 @@ pub async fn make_post_comment(db: Data<Database>, data: Json<Comment>, auth: Be
     }
 }
 
+#[delete("/comment/{comment_id}")]
+pub async fn delete_comment(db: Data<Database>, path: Path<String>, auth: BearerAuth) -> HttpResponse {
+    let comment_id = match path.parse::<u64>() {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
+    };
+
+    let comment = match db.read_comment_by_id(comment_id).await {
+        Ok(c)  => c,
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid commnet_id").finish()
+    };
+
+    // TODO: Proper auth token check
+    if auth.token().ne(&comment.poster_id.to_string()) {
+        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    }
+
+    let result = db.delete_comment(comment_id).await;
+    match result {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
 #[get("/users/{user_id}/posts")]
 pub async fn get_user_posts(db: Data<Database>, path: Path<String>) -> HttpResponse {
     let user_id = match path.parse::<u64>() {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid user_id").finish()
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid user_id format").finish()
     };
     let result = db.read_posts_by_user(user_id).await;
     match result {
@@ -149,7 +215,7 @@ pub async fn get_user_posts(db: Data<Database>, path: Path<String>) -> HttpRespo
 pub async fn get_user_comments(db: Data<Database>, path: Path<String>) -> HttpResponse {
     let user_id = match path.parse::<u64>() {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid user_id").finish()
+        Err(_) => return HttpResponse::BadRequest().reason("Invalid user_id format").finish()
     };
     let result = db.read_comments_by_user(user_id).await;
     match result {
