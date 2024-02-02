@@ -40,3 +40,8 @@ pub struct CommentLike {
     pub account_id: u64,
     pub liked: bool
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostCommentUpdate {
+    pub new_body: String
+}

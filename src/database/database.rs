@@ -255,6 +255,38 @@ impl Database {
         }
     }
 
+    pub async fn update_post_body(&self, post_id: u64, new_body: String) -> DBResult<()> {
+        let result = sqlx::query(
+            "UPDATE Post
+            SET body = ?
+            WHERE id = ?")
+            .bind(new_body)
+            .bind(post_id)
+            .execute(&self.conn_pool)
+            .await;
+        
+        match result {
+            Ok(res) => expected_rows_affected(res, 1),
+            Err(err) => Err(log_error(DBError::from(err)))
+        }
+    }
+
+    pub async fn update_comment_body(&self, comment_id: u64, new_body: String) -> DBResult<()> {
+        let result = sqlx::query(
+            "UPDATE Comment
+            SET body = ?
+            WHERE id = ?")
+            .bind(new_body)
+            .bind(comment_id)
+            .execute(&self.conn_pool)
+            .await;
+        
+        match result {
+            Ok(res) => expected_rows_affected(res, 1),
+            Err(err) => Err(log_error(DBError::from(err)))
+        }
+    }
+
     // Delete
 
     pub async fn delete_post(&self, post_id: u64) -> DBResult<()> {
