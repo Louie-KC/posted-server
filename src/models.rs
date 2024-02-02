@@ -14,7 +14,8 @@ pub struct Post {
     pub poster_id: u64,
     pub title: String,
     pub body: String,
-    pub likes: Option<u64>
+    pub likes: Option<u64>,
+    pub edited: bool
 }
 
 #[derive(Debug, Deserialize, FromRow, Serialize)]
@@ -24,7 +25,8 @@ pub struct Comment {
     pub commenter_id: u64,
     pub body: String,
     pub comment_reply_id: Option<u64>,
-    pub likes: Option<u64>
+    pub likes: Option<u64>,
+    pub edited: bool
 }
 
 #[derive(Debug, Deserialize, FromRow, Serialize)]

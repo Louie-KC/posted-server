@@ -20,6 +20,7 @@ CREATE TABLE Post (
     title VARCHAR(127) NOT NULL,
     body VARCHAR(1024) NOT NULL,
     post_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    edited BOOLEAN DEFAULT false,
     PRIMARY KEY (id),
     FOREIGN KEY (poster_id) REFERENCES Account(id)
 );
@@ -30,6 +31,7 @@ CREATE TABLE Comment (
     commenter_id BIGINT UNSIGNED NOT NULL,
     body VARCHAR(255),
     comment_reply_id BIGINT UNSIGNED,
+    edited BOOLEAN DEFAULT false,
     PRIMARY KEY (id),
     FOREIGN KEY (post_id) REFERENCES Post(id),
     FOREIGN KEY (commenter_id) REFERENCES Account(id),

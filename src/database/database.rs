@@ -260,7 +260,7 @@ impl Database {
     pub async fn update_post_body(&self, post_id: u64, new_body: String) -> DBResult<()> {
         let result = sqlx::query(
             "UPDATE Post
-            SET body = ?
+            SET body = ?, edited = true
             WHERE id = ?")
             .bind(new_body)
             .bind(post_id)
@@ -276,7 +276,7 @@ impl Database {
     pub async fn update_comment_body(&self, comment_id: u64, new_body: String) -> DBResult<()> {
         let result = sqlx::query(
             "UPDATE Comment
-            SET body = ?
+            SET body = ?, edited = true
             WHERE id = ?")
             .bind(new_body)
             .bind(comment_id)
