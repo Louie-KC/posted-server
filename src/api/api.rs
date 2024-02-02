@@ -11,6 +11,7 @@ pub fn config(config: &mut ServiceConfig) -> () {
     config.service(web::scope("/api")
             .service(create_account)
             .service(login)
+            .service(change_password)
             .service(get_posts)
             .service(create_post)
             .service(get_post)
@@ -27,7 +28,7 @@ pub fn config(config: &mut ServiceConfig) -> () {
         );
 }
 
-#[post("/register")]
+#[post("/account/register")]
 pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpResponse {
     if account.username.is_empty() {
         return HttpResponse::BadRequest().reason("The provided username was empty").finish();
@@ -46,7 +47,7 @@ pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpR
     }
 }
 
-#[post("authenticate")]
+#[post("/account/authenticate")]
 pub async fn login(db: Data<Database>, data: Json<Account>) -> HttpResponse {
     if data.username.is_empty() {
         return HttpResponse::BadRequest().reason("The provided username was empty").finish()
@@ -65,6 +66,28 @@ pub async fn login(db: Data<Database>, data: Json<Account>) -> HttpResponse {
             HttpResponse::Ok().json(json!({"id": id, "token": id}))  // TODO: Add actual token
         },
         Err(_) => HttpResponse::BadRequest().finish()
+    }
+}
+
+#[put("/account/change_password")]
+pub async fn change_password(
+    db: Data<Database>,
+    data: Json<AccountPasswordUpdate>,
+    auth: BearerAuth
+) -> HttpResponse {
+    if data.new.eq(&data.old) {
+        return HttpResponse::BadRequest().reason("Old and new are identical").finish();
+    }
+
+    // TODO: Proper auth token check
+    if auth.token().ne(&data.account_id.to_string()) {
+        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    }
+
+    match db.update_account_password(data.account_id, &data.old, &data.new).await {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(DBError::UnexpectedRowsAffected(1, 0)) => HttpResponse::BadRequest().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
 

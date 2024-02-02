@@ -239,13 +239,15 @@ impl Database {
 
     // Update
 
-    pub async fn update_account_password(&self, account_id: u64, password_hash: &str) -> DBResult<()> {
+    pub async fn update_account_password(&self, account_id: u64, old: &str, new: &str) -> DBResult<()> {
         let result = sqlx::query(
             "UPDATE Account
             SET password_hash = ?
-            WHERE id = ?")
-            .bind(password_hash)
+            WHERE id = ?
+            AND password_hash = ?;")
+            .bind(new)
             .bind(account_id)
+            .bind(old)
             .execute(&self.conn_pool)
             .await;
     

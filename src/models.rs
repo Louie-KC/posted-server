@@ -42,6 +42,13 @@ pub struct CommentLike {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct AccountPasswordUpdate {
+    pub account_id: u64,
+    pub old: String,
+    pub new: String
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PostCommentUpdate {
     pub new_body: String
 }
