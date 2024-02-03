@@ -19,7 +19,7 @@ CREATE TABLE Post (
     poster_id BIGINT UNSIGNED NOT NULL,
     title VARCHAR(127) NOT NULL,
     body VARCHAR(1024) NOT NULL,
-    post_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    time_stamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(), -- TIMESTAMP is UTC
     edited BOOLEAN DEFAULT false,
     PRIMARY KEY (id),
     FOREIGN KEY (poster_id) REFERENCES Account(id)
@@ -31,6 +31,7 @@ CREATE TABLE Comment (
     commenter_id BIGINT UNSIGNED NOT NULL,
     body VARCHAR(255),
     comment_reply_id BIGINT UNSIGNED,
+    time_stamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(), -- TIMESTAMP is UTC
     edited BOOLEAN DEFAULT false,
     PRIMARY KEY (id),
     FOREIGN KEY (post_id) REFERENCES Post(id),

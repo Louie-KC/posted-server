@@ -116,7 +116,7 @@ pub async fn create_post(db: Data<Database>, data: Json<Post>, auth: BearerAuth)
 
     let post = Post { 
         id: None, poster_id: data.poster_id, title: data.title.clone(),
-        body: data.body.clone(), likes: None , edited: false
+        body: data.body.clone(), likes: None, time_stamp: None, edited: false
     };
     
     let result = db.create_post(post).await;
@@ -218,7 +218,7 @@ pub async fn make_post_comment(db: Data<Database>, data: Json<Comment>, auth: Be
 
     let comment = Comment { id: None, post_id: data.post_id,
         commenter_id: data.commenter_id, body: data.body.clone(),
-        comment_reply_id: data.comment_reply_id, likes: None, edited: false
+        comment_reply_id: data.comment_reply_id, likes: None, time_stamp: None, edited: false
     };
     
     let result = db.create_comment(comment).await;
