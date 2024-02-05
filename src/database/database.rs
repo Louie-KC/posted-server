@@ -174,23 +174,6 @@ impl Database {
         }
     }
 
-    pub async fn read_comment_by_id(&self, comment_id: u64) -> DBResult<Post> {
-        let result = sqlx::query_as::<_, Post>(
-            "SELECT c.*, CAST(COUNT(cl.account_id) AS UNSIGNED) AS 'likes'
-            FROM Comment c
-            LEFT JOIN CommentLike cl
-            ON c.id = cl.comment_id
-            WHERE c.id = ?
-            GROUP BY c.id;")
-            .bind(comment_id)
-            .fetch_one(&self.conn_pool)
-            .await;
-        match result {
-            Ok(comment) => Ok(comment),
-            Err(e) => Err(log_error(DBError::from(e)))
-        }
-    }
-
     pub async fn read_comments_by_user(&self, user_id: u64) -> DBResult<Vec<Comment>> {
         let result = sqlx::query_as::<_, Comment>(
             "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'

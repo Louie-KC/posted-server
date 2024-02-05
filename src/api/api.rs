@@ -169,19 +169,15 @@ pub async fn update_post(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    // let post = match db.read_post_by_id(post_id).await {
-    //     Ok(p)  => p,
-    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
-    // };
-
-    // TODO: Capture the above invalid post_id error again            !!!
-
     if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
         return bad_token_response;
     }
 
     match db.update_post_body(post_id, data.new_body.clone()).await {
         Ok(()) => HttpResponse::Ok().finish(),
+        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+            HttpResponse::BadRequest().reason("Invalid post_id").finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
@@ -199,13 +195,6 @@ pub async fn delete_post(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    // let post = match db.read_post_by_id(post_id).await {
-    //     Ok(p) => p,
-    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
-    // };
-
-    // TODO: Capture the above invalid post_id error again            !!!
-
     if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
         return bad_token_response;
     }
@@ -213,6 +202,9 @@ pub async fn delete_post(
     let result = db.delete_post(post_id).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
+        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+            HttpResponse::BadRequest().reason("Invalid post_id").finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
@@ -273,19 +265,15 @@ pub async fn update_comment(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    // let comment = match db.read_comment_by_id(comment_id).await {
-    //     Ok(c)  => c,
-    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
-    // };
-
-    // TODO: Capture the above invalid comment_id response again        !!!!!
-
     if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
         return bad_token_response;
     }
 
     match db.update_comment_body(comment_id, data.new_body.clone()).await {
         Ok(()) => HttpResponse::Ok().finish(),
+        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+            HttpResponse::BadRequest().reason("Invalid comment_id").finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
@@ -303,13 +291,6 @@ pub async fn delete_comment(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    // let comment = match db.read_comment_by_id(comment_id).await {
-    //     Ok(c)  => c,
-    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
-    // };
-
-    // TODO: Capture the above invalid comment_id response again        !!!!!
-
     if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
         return bad_token_response;
     }
@@ -317,6 +298,10 @@ pub async fn delete_comment(
     let result = db.delete_comment(comment_id).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
+
+        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+            HttpResponse::BadRequest().reason("Invalid comment_id").finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
