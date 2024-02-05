@@ -45,6 +45,11 @@ pub struct CommentLike {
     pub liked: bool
 }
 
+#[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
+pub struct AccountID {
+    pub account_id: u64
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AccountPasswordUpdate {
     pub account_id: u64,
@@ -54,5 +59,6 @@ pub struct AccountPasswordUpdate {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PostCommentUpdate {
+    pub account_id: u64,
     pub new_body: String
 }

@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use actix_web::{delete, get, post, put, web, HttpResponse};
 use actix_web::web::{Data, Json, Path, ServiceConfig};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
@@ -6,6 +8,7 @@ use serde_json::json;
 
 use crate::database::{database::Database, error::DBError};
 use crate::models::*;
+use crate::auth::auth::AuthService;
 
 pub fn config(config: &mut ServiceConfig) -> () {
     config.service(web::scope("/api")
@@ -48,7 +51,11 @@ pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpR
 }
 
 #[post("/account/authenticate")]
-pub async fn login(db: Data<Database>, data: Json<Account>) -> HttpResponse {
+pub async fn login(
+    db: Data<Database>,
+    auth: Data<Mutex<AuthService>>,
+    data: Json<Account>
+) -> HttpResponse {
     if data.username.is_empty() {
         return HttpResponse::BadRequest().reason("The provided username was empty").finish()
     }
@@ -56,14 +63,18 @@ pub async fn login(db: Data<Database>, data: Json<Account>) -> HttpResponse {
         return HttpResponse::BadRequest().reason("The provided password hash was empty").finish()
     }
 
-    // TODO: Actual token generation and storage
-
     let account = Account { id: None, username: data.username.clone(), password_hash: data.password_hash.clone() };
     let id_result = db.read_account_id(account).await;
 
+    let mut auth_service = match auth.try_lock() {
+        Ok(service) => service,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+
     match id_result {
         Ok(id) => {
-            HttpResponse::Ok().json(json!({"id": id, "token": id}))  // TODO: Add actual token
+            let token = auth_service.generate_for_user(id);
+            HttpResponse::Ok().json(json!({"id": id, "token": token}))
         },
         Err(_) => HttpResponse::BadRequest().finish()
     }
@@ -73,15 +84,15 @@ pub async fn login(db: Data<Database>, data: Json<Account>) -> HttpResponse {
 pub async fn change_password(
     db: Data<Database>,
     data: Json<AccountPasswordUpdate>,
-    auth: BearerAuth
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
 ) -> HttpResponse {
     if data.new.eq(&data.old) {
         return HttpResponse::BadRequest().reason("Old and new are identical").finish();
     }
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&data.account_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     match db.update_account_password(data.account_id, &data.old, &data.new).await {
@@ -101,7 +112,12 @@ pub async fn get_posts(db: Data<Database>) -> HttpResponse {
 }
 
 #[post("/posts")]
-pub async fn create_post(db: Data<Database>, data: Json<Post>, auth: BearerAuth) -> HttpResponse {
+pub async fn create_post(
+    db: Data<Database>,
+    data: Json<Post>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
     if data.title.is_empty() {
         return HttpResponse::BadRequest().reason("Post has no title").finish()
     }
@@ -109,9 +125,8 @@ pub async fn create_post(db: Data<Database>, data: Json<Post>, auth: BearerAuth)
         return HttpResponse::BadRequest().reason("Post has no body/content").finish()
     }
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&data.poster_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    if let Err(bad_token_response) = verify_token(data.poster_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let post = Post { 
@@ -146,21 +161,23 @@ pub async fn update_post(
     db: Data<Database>,
     path: Path<String>,
     data: Json<PostCommentUpdate>,
-    auth: BearerAuth
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
 ) -> HttpResponse {
     let post_id = match path.parse::<u64>() {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    let post = match db.read_post_by_id(post_id).await {
-        Ok(p)  => p,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
-    };
+    // let post = match db.read_post_by_id(post_id).await {
+    //     Ok(p)  => p,
+    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
+    // };
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&post.poster_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    // TODO: Capture the above invalid post_id error again            !!!
+
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     match db.update_post_body(post_id, data.new_body.clone()).await {
@@ -170,20 +187,27 @@ pub async fn update_post(
 }
 
 #[delete("/posts/{post_id}")]
-pub async fn delete_post(db: Data<Database>, path: Path<String>, auth: BearerAuth) -> HttpResponse {
+pub async fn delete_post(
+    db: Data<Database>,
+    path: Path<String>,
+    data: Json<AccountID>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
     let post_id = match path.parse::<u64>() {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    let post = match db.read_post_by_id(post_id).await {
-        Ok(p) => p,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
-    };
+    // let post = match db.read_post_by_id(post_id).await {
+    //     Ok(p) => p,
+    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id").finish()
+    // };
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&post.poster_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    // TODO: Capture the above invalid post_id error again            !!!
+
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let result = db.delete_post(post_id).await;
@@ -207,13 +231,18 @@ pub async fn get_post_comments(db: Data<Database>, path: Path<String>) -> HttpRe
 }
 
 #[post("/comment")]
-pub async fn make_post_comment(db: Data<Database>, data: Json<Comment>, auth: BearerAuth) -> HttpResponse {
+pub async fn make_post_comment(
+    db: Data<Database>,
+    data: Json<Comment>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
     if data.body.is_empty() {
         return HttpResponse::BadRequest().reason("Comment without body").finish()
     }
-    // TODO: Proper auth token check
-    if auth.token().ne(&data.commenter_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+
+    if let Err(bad_token_response) = verify_token(data.commenter_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let comment = Comment { id: None, post_id: data.post_id,
@@ -236,21 +265,23 @@ pub async fn update_comment(
     db: Data<Database>,
     path: Path<String>,
     data: Json<PostCommentUpdate>,
-    auth: BearerAuth
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
 ) -> HttpResponse {
     let comment_id = match path.parse::<u64>() {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    let comment = match db.read_comment_by_id(comment_id).await {
-        Ok(c)  => c,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
-    };
+    // let comment = match db.read_comment_by_id(comment_id).await {
+    //     Ok(c)  => c,
+    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
+    // };
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&comment.poster_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    // TODO: Capture the above invalid comment_id response again        !!!!!
+
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     match db.update_comment_body(comment_id, data.new_body.clone()).await {
@@ -260,20 +291,27 @@ pub async fn update_comment(
 }
 
 #[delete("/comment/{comment_id}")]
-pub async fn delete_comment(db: Data<Database>, path: Path<String>, auth: BearerAuth) -> HttpResponse {
-    let comment_id = match path.parse::<u64>() {
+pub async fn delete_comment(
+    db: Data<Database>,
+    path: Path<String>,
+    data: Json<AccountID>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
+    let comment_id: u64 = match path.parse::<u64>() {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    let comment = match db.read_comment_by_id(comment_id).await {
-        Ok(c)  => c,
-        Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
-    };
+    // let comment = match db.read_comment_by_id(comment_id).await {
+    //     Ok(c)  => c,
+    //     Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id").finish()
+    // };
 
-    // TODO: Proper auth token check
-    if auth.token().ne(&comment.poster_id.to_string()) {
-        return HttpResponse::Unauthorized().reason("Invalid authorization token").finish()
+    // TODO: Capture the above invalid comment_id response again        !!!!!
+
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let result = db.delete_comment(comment_id).await;
@@ -310,14 +348,18 @@ pub async fn get_user_comments(db: Data<Database>, path: Path<String>) -> HttpRe
 }
 
 #[post("/vote/post")]
-pub async fn vote_on_post(db: Data<Database>, data: Json<PostLike>, auth: BearerAuth) -> HttpResponse {
+pub async fn vote_on_post(
+    db: Data<Database>,
+    data: Json<PostLike>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
     if data.account_id == 0 || data.post_id == 0 {
         return HttpResponse::BadRequest().finish()
     }
 
-    // TODO: Replace with proper auth token check
-    if auth.token().ne(&data.account_id.to_string()) {
-        return HttpResponse::Unauthorized().finish()
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let result = match data.liked {
@@ -332,14 +374,18 @@ pub async fn vote_on_post(db: Data<Database>, data: Json<PostLike>, auth: Bearer
 }
 
 #[post("/vote/comment")]
-pub async fn vote_on_comment(db: Data<Database>, data: Json<CommentLike>, auth: BearerAuth) -> HttpResponse {
+pub async fn vote_on_comment(
+    db: Data<Database>,
+    data: Json<CommentLike>,
+    auth: Data<Mutex<AuthService>>,
+    bearer: BearerAuth
+) -> HttpResponse {
     if data.account_id == 0 || data.comment_id == 0 {
         return HttpResponse::BadRequest().finish()
     }
 
-    // TODO: Replace with proper auth token check
-    if auth.token().ne(&data.account_id.to_string()) {
-        return HttpResponse::Unauthorized().finish()
+    if let Err(bad_token_response) = verify_token(data.account_id, bearer.token(), auth) {
+        return bad_token_response;
     }
 
     let result = match data.liked {
@@ -350,5 +396,25 @@ pub async fn vote_on_comment(db: Data<Database>, data: Json<CommentLike>, auth: 
         Ok(()) => HttpResponse::Ok().finish(),
         Err(DBError::UnexpectedRowsAffected(_, _)) => HttpResponse::AlreadyReported().finish(),
         Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
+
+/// Check that a `token_str` is valid for an `account_id` in the `auth` AuthService.
+/// 
+/// Note: The MutexGuard for AuthService that is acquired is dropped at the end
+///       of the function, releasing the lock on the AuthService.
+pub fn verify_token(
+    account_id: u64,
+    token_str: &str,
+    auth: Data<Mutex<AuthService>>
+) -> Result<(), HttpResponse> {
+    let auth_service_guard = match auth.try_lock() {
+        Ok(service) => service,
+        Err(_) => return Err(HttpResponse::InternalServerError().finish())
+    };
+    match auth_service_guard.validate_str(account_id, token_str) {
+        Ok(true)  => Ok(()),
+        Ok(false) => Err(HttpResponse::Unauthorized().finish()),
+        Err(_)    => Err(HttpResponse::Unauthorized().reason("Invalid token").finish())
     }
 }
