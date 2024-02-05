@@ -131,7 +131,7 @@ pub async fn create_post(
 
     let post = Post { 
         id: None, poster_id: data.poster_id, title: data.title.clone(),
-        body: data.body.clone(), likes: None, time_stamp: None, edited: false
+        body: data.body.clone(), likes: None, time_stamp: None, edited: Some(false)
     };
     
     let result = db.create_post(post).await;
@@ -247,7 +247,7 @@ pub async fn make_post_comment(
 
     let comment = Comment { id: None, post_id: data.post_id,
         commenter_id: data.commenter_id, body: data.body.clone(),
-        comment_reply_id: data.comment_reply_id, likes: None, time_stamp: None, edited: false
+        comment_reply_id: data.comment_reply_id, likes: None, time_stamp: None, edited: Some(false)
     };
     
     let result = db.create_comment(comment).await;

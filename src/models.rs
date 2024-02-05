@@ -16,7 +16,7 @@ pub struct Post {
     pub body: String,
     pub likes: Option<u64>,
     pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: bool
+    pub edited: Option<bool>
 }
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
@@ -28,7 +28,7 @@ pub struct Comment {
     pub comment_reply_id: Option<u64>,
     pub likes: Option<u64>,
     pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: bool
+    pub edited: Option<bool>
 }
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
