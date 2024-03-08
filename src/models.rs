@@ -1,6 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
+/// bool type for MySql Databases. Required for converting TINYINT(1) to bool.
+/// 
+/// Bool selection in queries must resemble: "<column_name> as `alias: _`"
+/// 
+/// Reference: https://docs.rs/sqlx/latest/sqlx/macro.query_as.html#column-type-override-infer-from-struct-field
+#[derive(sqlx::Type, Debug, Deserialize, Serialize)]
+#[sqlx(transparent)]
+pub struct MySqlBool (pub bool);
+
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
 pub struct Account {
     pub id: Option<u64>,
@@ -16,7 +25,7 @@ pub struct Post {
     pub body: String,
     pub likes: Option<u64>,
     pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: Option<bool>
+    pub edited: Option<MySqlBool>
 }
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
@@ -28,7 +37,7 @@ pub struct Comment {
     pub comment_reply_id: Option<u64>,
     pub likes: Option<u64>,
     pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: Option<bool>
+    pub edited: Option<MySqlBool>
 }
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
