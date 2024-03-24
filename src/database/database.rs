@@ -158,16 +158,18 @@ impl Database {
     }
 
     pub async fn read_comments_of_post(&self, post_id: u64) -> DBResult<Vec<Comment>> {
-        let result = sqlx::query_as::<_, Comment>(
-            "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
+        let result = sqlx::query_as!(Comment,
+            "SELECT c.id, c.post_id, c.commenter_id, c.body, c.comment_reply_id,
+                c.time_stamp, c.edited as `edited: _`,
+                CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
             FROM Comment c
             LEFT JOIN CommentLike cl
             ON c.id = cl.comment_id
             WHERE c.post_id = ?
-            GROUP BY c.id")
-            .bind(post_id)
+            GROUP BY c.id", post_id)
             .fetch_all(&self.conn_pool)
             .await;
+
 
         match result {
             Ok(comments) => Ok(comments),
@@ -176,9 +178,7 @@ impl Database {
     }
 
     pub async fn read_comments_by_user(&self, user_id: u64) -> DBResult<Vec<Comment>> {
-        // let result = sqlx::query_as::<_, Comment>(
         let result = sqlx::query_as!(Comment,
-            // "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
             "SELECT c.id, c.post_id, c.commenter_id, c.body, c.comment_reply_id,
                 c.time_stamp, c.edited as `edited: _`,
                 CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
@@ -337,7 +337,6 @@ fn expected_rows_affected(result: MySqlQueryResult, expected_rows: u64) -> DBRes
     if result.rows_affected() == expected_rows {
         Ok(())
     } else {
-        // Err(log_error(DBError::UnexpectedRowsAffected(expected_rows, result.rows_affected())))
         Err(log_error(DBError::UnexpectedRowsAffected {
             expected: expected_rows, actual: result.rows_affected()
         }))
@@ -355,7 +354,6 @@ mod test {
     use std::mem::Discriminant;
     use crate::models::Comment;
     use crate::models::Post;
-    use crate::models::PostLike;
 
     use super::Database;
     use super::DBError;
