@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-pub type TokenRegistry = HashMap<u64, Uuid>;
+type TokenRegistry = HashMap<u64, Uuid>;
 
 pub struct AuthService {
     tokens: TokenRegistry

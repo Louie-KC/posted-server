@@ -9,5 +9,13 @@ services:
       - '6500:3306'
     volumes:
       - mysqlDB:/var/lib/mysql
+  redis_cache:
+    image: redis:latest
+    container_name: redis_cache_posted
+    ports:
+      - '6379:6379'
+    volumes:
+      - cache:/data
 volumes:
   mysqlDB:
+  cache:
