@@ -177,7 +177,7 @@ impl Database {
 
     pub async fn read_comments_by_user(&self, user_id: u64) -> DBResult<Vec<Comment>> {
         // let result = sqlx::query_as::<_, Comment>(
-            let result = sqlx::query_as!(Comment,
+        let result = sqlx::query_as!(Comment,
             // "SELECT c.*, CAST(count(cl.comment_id) AS UNSIGNED) AS 'likes'
             "SELECT c.id, c.post_id, c.commenter_id, c.body, c.comment_reply_id,
                 c.time_stamp, c.edited as `edited: _`,
@@ -337,11 +337,107 @@ fn expected_rows_affected(result: MySqlQueryResult, expected_rows: u64) -> DBRes
     if result.rows_affected() == expected_rows {
         Ok(())
     } else {
-        Err(log_error(DBError::UnexpectedRowsAffected(expected_rows, result.rows_affected())))
+        // Err(log_error(DBError::UnexpectedRowsAffected(expected_rows, result.rows_affected())))
+        Err(log_error(DBError::UnexpectedRowsAffected {
+            expected: expected_rows, actual: result.rows_affected()
+        }))
     }
 }
 
 fn log_error(err: DBError) -> DBError {
     warn!("{}", err);
     err
+}
+
+#[cfg(test)]
+mod test {
+    use std::mem::discriminant;
+    use std::mem::Discriminant;
+    use crate::models::Comment;
+    use crate::models::Post;
+    use crate::models::PostLike;
+
+    use super::Database;
+    use super::DBError;
+    use dotenv;
+    
+    const DB_ERR_URA: Discriminant<DBError> = discriminant(&DBError::UnexpectedRowsAffected {
+        expected: 0, actual: 0
+    });
+    const DB_ERR_NR: Discriminant<DBError> = discriminant(&DBError::NoResult);
+    const DB_ERR_SQLX: Discriminant<DBError> = discriminant(&DBError::SQLXError(sqlx::Error::PoolClosed));
+
+    // The below test(s) require that the MySql database is not empty. At minimum, the
+    // `devtest_data.sql` should be used.
+
+    #[actix_web::test]
+    async fn test_errors() {
+        dotenv::dotenv().ok();
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
+        let db: Database = Database::new(&db_url).await;
+
+        // CRUD
+        // Create
+        let post_invalid_poster_id = Post {
+            id: None,
+            poster_id: 0,
+            title: "bad_posted_id".to_string(),
+            body: "bad_posted_id".to_string(),
+            likes: None,
+            time_stamp: None,
+            edited: None
+        };
+        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_post(post_invalid_poster_id).await.unwrap_err()));
+
+        let comment_invalid_post_id = Comment {
+            id: None,
+            post_id: 0,
+            commenter_id: 1,
+            body: "".into(),
+            comment_reply_id: None,
+            likes: None,
+            time_stamp: None,
+            edited: None
+        };
+        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_invalid_post_id).await.unwrap_err()));
+
+        let comment_invalid_commenter_id = Comment {
+            id: None,
+            post_id: 1,
+            commenter_id: 0,
+            body: "".into(),
+            comment_reply_id: None,
+            likes: None,
+            time_stamp: None,
+            edited: None
+        };
+        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_invalid_commenter_id).await.unwrap_err()));
+
+        // Invalid post_id
+        assert_eq!(DB_ERR_URA, discriminant(&db.create_post_like(0, 1).await.unwrap_err()));
+        // Invalid account_id
+        assert_eq!(DB_ERR_URA, discriminant(&db.create_post_like(1, 0).await.unwrap_err()));
+
+        // Invalid comment_id
+        assert_eq!(DB_ERR_URA, discriminant(&db.create_comment_like(0, 1).await.unwrap_err()));
+        // Invalid account_id
+        assert_eq!(DB_ERR_URA, discriminant(&db.create_comment_like(1, 0).await.unwrap_err()));
+
+        
+        // Read
+        assert_eq!(DB_ERR_NR, discriminant(&db.read_post_by_id(0).await.unwrap_err()));
+        // read_posts_by_user, read_comments_by_user, and read_comments_of_post will return an empty
+        // vec with an invalid post or account id value.
+
+        // Update
+        assert_eq!(DB_ERR_URA, discriminant(&db.update_account_password(0, "", "").await.unwrap_err()));
+        assert_eq!(DB_ERR_URA, discriminant(&db.update_post_body(0, "".to_string()).await.unwrap_err()));
+        assert_eq!(DB_ERR_URA, discriminant(&db.update_comment_body(0, "".to_string()).await.unwrap_err()));
+    
+        // Delete
+        assert_eq!(DB_ERR_URA, discriminant(&db.delete_post(0).await.unwrap_err()));
+        assert_eq!(DB_ERR_URA, discriminant(&db.delete_post_like(0, 0).await.unwrap_err()));
+        assert_eq!(DB_ERR_URA, discriminant(&db.delete_comment(0).await.unwrap_err()));
+        assert_eq!(DB_ERR_URA, discriminant(&db.delete_comment_like(0, 0).await.unwrap_err()));
+    }
 }

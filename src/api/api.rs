@@ -45,7 +45,7 @@ pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpR
     let result = db.create_account(&account.username, &account.password_hash).await;
     match result {
         Ok(()) => HttpResponse::Ok().json(json!({"status": "Success"})),
-        Err(DBError::UnexpectedRowsAffected(_, _)) => {
+        Err(DBError::UnexpectedRowsAffected { expected: 1, actual: 0 } ) => {
             HttpResponse::BadRequest().reason("Username is taken").finish()
         }
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -94,7 +94,9 @@ pub async fn change_password(
 
     match db.update_account_password(data.account_id, &data.old, &data.new).await {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(1, 0)) => HttpResponse::BadRequest().finish(),
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
+            HttpResponse::BadRequest().finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
@@ -172,7 +174,7 @@ pub async fn update_post(
 
     match db.update_post_body(post_id, data.new_body.clone()).await {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().reason("Invalid post_id").finish()
         },
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -199,7 +201,7 @@ pub async fn delete_post(
     let result = db.delete_post(post_id).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().reason("Invalid post_id").finish()
         },
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -242,7 +244,7 @@ pub async fn make_post_comment(
     let result = db.create_comment(comment).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(_, _)) => {
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().reason("Comment data was invalid").finish()
         },
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -268,7 +270,7 @@ pub async fn update_comment(
 
     match db.update_comment_body(comment_id, data.new_body.clone()).await {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().reason("Invalid comment_id").finish()
         },
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -295,8 +297,7 @@ pub async fn delete_comment(
     let result = db.delete_comment(comment_id).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
-
-        Err(DBError::UnexpectedRowsAffected(1, 0)) => {
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().reason("Invalid comment_id").finish()
         },
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -350,7 +351,9 @@ pub async fn vote_on_post(
     };
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(_, _)) => HttpResponse::AlreadyReported().finish(),
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
+            HttpResponse::AlreadyReported().finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
@@ -376,7 +379,9 @@ pub async fn vote_on_comment(
     };
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
-        Err(DBError::UnexpectedRowsAffected(_, _)) => HttpResponse::AlreadyReported().finish(),
+        Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
+            HttpResponse::AlreadyReported().finish()
+        },
         Err(_) => HttpResponse::InternalServerError().finish()
     }
 }
