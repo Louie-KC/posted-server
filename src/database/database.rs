@@ -2,7 +2,7 @@ use log::warn;
 use sqlx::{MySql, Pool, Row};
 use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
 
-use crate::models::{Account, Comment, Post};
+use crate::models::{Account, AccountFromDB, Comment, Post};
 use crate::database::error::DBError;
 
 type DBResult<T> = Result<T, DBError>;
@@ -87,6 +87,37 @@ impl Database {
 
     // Read
 
+    pub async fn read_account_by_id(&self, id: u64) -> DBResult<AccountFromDB> {
+        // TODO, avoid cast and return null for an None for id
+        let result = sqlx::query_as!(AccountFromDB,
+            "SELECT CAST(0 AS UNSIGNED) as 'id', username, password_hash
+            FROM Account
+            WHERE id = ?
+            LIMIT 1;", id)
+            .fetch_one(&self.conn_pool)
+            .await;
+
+        match result {
+            Ok(acc) => Ok(acc),
+            Err(e) => Err(log_error(DBError::from(e)))
+        }
+    }
+
+    pub async fn read_account_by_username(&self, username: &str) -> DBResult<AccountFromDB> {
+        let result = sqlx::query_as!(AccountFromDB,
+            "SELECT CAST(id AS UNSIGNED) as 'id', '' as 'username', password_hash
+            FROM Account
+            WHERE username = ?
+            LIMIT 1;", username)
+            .fetch_one(&self.conn_pool)
+            .await;
+        
+        match result {
+            Ok(acc) => Ok(acc),
+            Err(e) => Err(log_error(DBError::from(e)))
+        }
+    }
+
     pub async fn read_account_id(&self, details: Account) -> DBResult<u64> {
         let result = sqlx::query(
             "SELECT id
@@ -95,7 +126,7 @@ impl Database {
             AND password_hash = ?
             LIMIT 1;")
             .bind(details.username)
-            .bind(details.password_hash)
+            .bind(details.password)
             .fetch_one(&self.conn_pool)
             .await;
         

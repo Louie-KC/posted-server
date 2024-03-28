@@ -12,6 +12,14 @@ use crate::models::*;
 // use crate::auth::auth::AuthService;
 use crate::auth::redis_auth;
 
+use argon2::{
+    password_hash::{
+        rand_core::OsRng,
+        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
+    },
+    Argon2
+};
+
 pub fn config(config: &mut ServiceConfig) -> () {
     config.service(web::scope("/api")
             .service(create_account)
@@ -34,15 +42,28 @@ pub fn config(config: &mut ServiceConfig) -> () {
 }
 
 #[post("/account/register")]
-pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpResponse {
+pub async fn create_account(
+    db: Data<Database>,
+    argon2: Data<Argon2<'_>>,
+    account: Json<Account>
+) -> HttpResponse {
     if account.username.is_empty() {
         return HttpResponse::BadRequest().reason("The provided username was empty").finish();
     }
-    if account.password_hash.is_empty() {
+    if account.password.is_empty() {
         return HttpResponse::BadRequest().reason("The provided password hash was empty").finish();
     }
 
-    let result = db.create_account(&account.username, &account.password_hash).await;
+    let username = account.username.clone();
+    let salt = SaltString::generate(&mut OsRng);
+    let pw_hash = match argon2.hash_password(account.password.as_bytes(), &salt) {
+        Ok(hash) => hash.to_string(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+    std::mem::drop(account);  // TODO: Zeroize Account struct or just the password
+    std::mem::drop(salt);
+
+    let result = db.create_account(&username, &pw_hash).await;
     match result {
         Ok(()) => HttpResponse::Ok().json(json!({"status": "Success"})),
         Err(DBError::UnexpectedRowsAffected { expected: 1, actual: 0 } ) => {
@@ -56,22 +77,31 @@ pub async fn create_account(db: Data<Database>, account: Json<Account>) -> HttpR
 pub async fn login(
     db: Data<Database>,
     cache: Data<Cache>,
+    argon2: Data<Argon2<'_>>,
     data: Json<Account>
 ) -> HttpResponse {
     if data.username.is_empty() {
         return HttpResponse::BadRequest().reason("The provided username was empty").finish()
     }
-    if data.password_hash.is_empty() {
-        return HttpResponse::BadRequest().reason("The provided password hash was empty").finish()
+    if data.password.is_empty() {
+        return HttpResponse::BadRequest().reason("The provided password was empty").finish()
     }
 
-    let account = Account { id: None, username: data.username.clone(), password_hash: data.password_hash.clone() };
-    let id_result = db.read_account_id(account).await;
+    let account_details = match db.read_account_by_username(&data.username).await{
+        Ok(details) => details,
+        Err(DBError::NoResult) => return HttpResponse::BadRequest().reason("Username doesn't exist").finish(),
+        Err(_) => return HttpResponse::InternalServerError().finish()
+    };
 
-    match id_result {
-        Ok(id) => {
-            let token = redis_auth::generate_for_user(&cache, id).await;
-            HttpResponse::Ok().json(json!({"id": id, "token": token}))
+    let parsed_pw_hash = match PasswordHash::new(&account_details.password_hash) {
+        Ok(parsed) => parsed,
+        Err(_) => return HttpResponse::InternalServerError().finish()
+    };
+
+    match argon2.verify_password(data.password.as_bytes(), &parsed_pw_hash) {
+        Ok(()) => {
+            let token = redis_auth::generate_for_user(&cache, account_details.id).await;
+            HttpResponse::Ok().json(json!({"id": account_details.id, "token": token}))
         },
         Err(_) => HttpResponse::BadRequest().finish()
     }
@@ -80,19 +110,49 @@ pub async fn login(
 #[put("/account/change_password")]
 pub async fn change_password(
     db: Data<Database>,
-    data: Json<AccountPasswordUpdate>,
     cache: Data<Cache>,
-    bearer: BearerAuth
+    argon2: Data<Argon2<'_>>,
+    bearer: BearerAuth,
+    data: Json<AccountPasswordUpdate>
 ) -> HttpResponse {
+    if data.old.is_empty() || data.new.is_empty() {
+        return HttpResponse::BadRequest().reason("One or both passwords are empty").finish()
+    }
     if data.new.eq(&data.old) {
         return HttpResponse::BadRequest().reason("Old and new are identical").finish();
     }
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    // Copy/use necessary data and then drop
+    let id = data.account_id;
+    let old_pw = data.old.clone();
+    let salt = SaltString::generate(&mut OsRng);
+    let new_pw_hash = match argon2.hash_password(data.new.as_bytes(), &salt) {
+        Ok(hash) => hash,
+        Err(_) => return HttpResponse::InternalServerError().finish()
+    };
+    std::mem::drop(data);  // TODO: Zeroize struct or just new and old passwords
+
+    if let Err(err_response) = verify_token(id, bearer.token(), cache).await {
         return err_response;
     }
 
-    match db.update_account_password(data.account_id, &data.old, &data.new).await {
+    let old_account_details = match db.read_account_by_id(id).await {
+        Ok(acc) => acc,
+        Err(DBError::NoResult) => return HttpResponse::BadRequest().reason("Invalid account id").finish(),
+        Err(_) => return HttpResponse::InternalServerError().finish()
+    };
+
+    let old_pw_hash = match PasswordHash::new(&old_account_details.password_hash) {
+        Ok(hash) => hash,
+        Err(_) => return HttpResponse::InternalServerError().finish()
+    };
+    
+    if argon2.verify_password(old_pw.as_bytes(), &old_pw_hash).is_err() {
+        return HttpResponse::BadRequest().reason("Invalid old password").finish()
+    }
+    std::mem::drop(old_pw);  // TODO: Zeroize struct or just new and old passwords
+
+    match db.update_account_password(id, &old_account_details.password_hash, &new_pw_hash.to_string()).await {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().finish()

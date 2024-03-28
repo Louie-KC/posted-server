@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-
 /// bool type for MySql Databases. Required for converting TINYINT(1) to bool.
 /// 
 /// Bool selection in queries must resemble: "<column_name> as `alias: _`"
@@ -10,11 +9,18 @@ use serde::{Serialize, Deserialize};
 #[sqlx(transparent)]
 pub struct MySqlBool (pub bool);
 
-#[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
+#[derive(sqlx::FromRow, Debug, Deserialize)]
 pub struct Account {
     pub id: Option<u64>,
     pub username: String,
-    pub password_hash: String,
+    pub password: String,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct AccountFromDB {
+    pub id: u64,
+    pub username: Option<String>,
+    pub password_hash: String
 }
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
