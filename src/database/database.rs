@@ -33,7 +33,6 @@ impl Database {
         }
     }
 
-
     pub async fn create_post(&self, post: Post) -> DBResult<()> {
         match sqlx::query("INSERT INTO Post (poster_id, title, body) VALUES (?, ?, ?);")
             .bind(post.poster_id)
@@ -307,6 +306,21 @@ impl Database {
         }
     }
 
+    pub async fn update_comment_as_deleted(&self, comment_id: u64) -> DBResult<()> {
+        let result = sqlx::query(
+            "UPDATE Comment
+            SET body = '[DELETED]', edited = true
+            WHERE id = ?")
+            .bind(comment_id)
+            .execute(&self.conn_pool)
+            .await;
+
+        match result {
+            Ok(res)  => expected_rows_affected(res, 1),
+            Err(err) => Err(log_error(DBError::from(err))),
+        }
+    }
+
     // Delete
 
     pub async fn delete_post(&self, post_id: u64) -> DBResult<()> {
@@ -520,20 +534,22 @@ mod test {
         const FIRST_BODY: &str = "test post body";
         const SECOND_BODY: &str = "updated/edited test post body";
 
+        let predicate = |p: &Post| p.poster_id.eq(&POSTER_ID) && p.title.eq(TITLE);
+  
+        // clear any left-over posts from previous failed test runs
+        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, FIRST_BODY).await, "failed to setup 1");
+        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, SECOND_BODY).await, "failed to setup 2");
+        
+        // Ensure test post is not present
+        let before_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
+        assert_eq!(0, before_posting.iter().filter(|p| predicate(p)).count());
+        
+        // Create, add, and check that the test post was added
         let post = Post {
             id: None, poster_id: POSTER_ID, title: TITLE.to_string(),
             body: FIRST_BODY.to_string(), likes: None, time_stamp: None,
             edited: None
         };
-
-        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, FIRST_BODY).await, "failed to setup 1");
-        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, SECOND_BODY).await, "failed to setup 2");
-
-        let predicate = |p: &Post| p.poster_id.eq(&POSTER_ID) && p.title.eq(TITLE);
-
-        let before_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
-        assert_eq!(0, before_posting.iter().filter(|p| predicate(p)).count());
-
         assert_eq!(Ok(()), db.create_post(post).await);
         let after_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
         assert_eq!(1, after_posting.iter().filter(|p| predicate(p)).count());
@@ -550,6 +566,7 @@ mod test {
 
         let test_post_id = retrieved_post_before_edit.id.unwrap();
 
+        // Edit the test post and re-check
         assert_eq!(Ok(()), db.update_post_body(test_post_id, SECOND_BODY.into()).await);
         let retrieved_post_after_edit = db.read_post_by_id(test_post_id).await.unwrap();
 
@@ -562,6 +579,7 @@ mod test {
         assert_eq!(true, retrieved_post_after_edit.edited.is_some());
         assert_eq!(Some(MySqlBool(true)), retrieved_post_after_edit.edited);
 
+        // Delete the test post and check that it cannot be read
         assert_eq!(Ok(()), db.delete_post(test_post_id).await);
         let after_delete = db.read_post_by_id(test_post_id).await;
         assert_eq!(true, after_delete.is_err());
@@ -578,20 +596,26 @@ mod test {
 
         let db: Database = test_context().await;
 
+        let predicate = |c: &Comment| {
+            (c.commenter_id == COMMENTER_ID_ONE || c.commenter_id == COMMENTER_ID_TWO)
+            && (c.body.eq(FIRST_BODY) || c.body.eq(SECOND_BODY))
+        };
+
+        // Clear any left-over test comments and create
         assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_ONE, FIRST_BODY).await);
         assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_TWO, FIRST_BODY).await);
         assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_ONE, SECOND_BODY).await);
         assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_TWO, SECOND_BODY).await);
 
+        // Ensure test comments are not present
+        let before_comment_one = db.read_comments_of_post(POST_ID).await.unwrap();
+        assert_eq!(false, before_comment_one.iter().any(|c| predicate(c)));
+
+        // Create, add and check first test comment
         let first_comment: Comment = Comment {
             id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_ONE, body: FIRST_BODY.into(),
             comment_reply_id: None, likes: None, time_stamp: None, edited: None
         };
-
-        let predicate = |c: &Comment| c.body.eq(FIRST_BODY) || c.body.eq(SECOND_BODY);
-
-        let before_comment_one = db.read_comments_of_post(POST_ID).await.unwrap();
-        assert_eq!(false, before_comment_one.iter().any(|c| predicate(c)));
 
         assert_eq!(Ok(()), db.create_comment(first_comment).await);
         let after_comment_one = db.read_comments_of_post(POST_ID).await.unwrap();
@@ -609,6 +633,7 @@ mod test {
 
         let comment_one_id = retrieved_comment_one.id.unwrap();
 
+        // Update/edit first test comment and check
         assert_eq!(Ok(()), db.update_comment_body(comment_one_id, SECOND_BODY.into()).await);
         let after_comment_one_edit = db.read_comments_of_post(POST_ID).await.unwrap();
         assert_eq!(1, after_comment_one.iter().filter(|c| predicate(c)).count());
@@ -623,6 +648,7 @@ mod test {
         assert_eq!(true, retrieved_comment_one_edited.time_stamp.is_some());
         assert_eq!(Some(MySqlBool(true)), retrieved_comment_one_edited.edited);
 
+        // Create, add, and check second test comment
         let comment_two = Comment {
             id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_TWO,
             body: FIRST_BODY.into(), comment_reply_id: Some(comment_one_id), likes: None,
@@ -651,7 +677,33 @@ mod test {
         assert_eq!(true, retrieved_comment_two.time_stamp.is_some());
         assert_eq!(Some(MySqlBool(false)), retrieved_comment_two.edited);
 
-        // TODO: review deletion (might add a pseudo delete for comment fk constraint)
+        let comment_two_id = retrieved_comment_two.id.unwrap();
+
+        // set first test comment as "deleted", where second test comment is a reply to it
+        assert_eq!(Ok(()), db.update_comment_as_deleted(comment_one_id).await);
+        let comments_after_delete = db.read_comments_of_post(POST_ID).await.unwrap();
+        let comment_one_deleted = comments_after_delete
+            .iter()
+            .find(|c| c.id.is_some_and(|cid| cid.eq(&comment_one_id)));
+        assert_eq!(true, comment_one_deleted.is_some());
+        let comment_one_deleted = comment_one_deleted.unwrap();
+        assert_eq!(POST_ID, comment_one_deleted.post_id);
+        assert_eq!(COMMENTER_ID_ONE, comment_one_deleted.commenter_id);
+        assert_eq!("[DELETED]", comment_one_deleted.body);
+        assert_eq!(None, comment_one_deleted.comment_reply_id);
+        assert_eq!(Some(0), comment_one_deleted.likes);
+        assert_eq!(true, comment_one_deleted.time_stamp.is_some());
+        assert_eq!(Some(MySqlBool(true)), comment_one_deleted.edited);
+
+        // Actually delete test comments
+        assert_eq!(Ok(()), db.delete_comment(comment_two_id.clone()).await);  // reply first (fk)
+        assert_eq!(Ok(()), db.delete_comment(comment_one_id.clone()).await);
+        assert_eq!(0, db.read_comments_of_post(POST_ID).await
+            .unwrap()
+            .iter()
+            .filter(|c| c.id.eq(&Some(comment_one_id)) || c.id.eq(&Some(comment_two_id)))
+            .count()
+        );
     }
 
 }
