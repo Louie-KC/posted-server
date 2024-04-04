@@ -354,7 +354,8 @@ pub async fn delete_comment(
         return err_response;
     }
 
-    let result = db.delete_comment(comment_id).await;
+    // Mark post as "deleted" by overwriting the body
+    let result = db.update_comment_body(comment_id, "[DELETED]".to_string()).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {

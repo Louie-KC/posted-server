@@ -306,21 +306,6 @@ impl Database {
         }
     }
 
-    pub async fn update_comment_as_deleted(&self, comment_id: u64) -> DBResult<()> {
-        let result = sqlx::query(
-            "UPDATE Comment
-            SET body = '[DELETED]', edited = true
-            WHERE id = ?")
-            .bind(comment_id)
-            .execute(&self.conn_pool)
-            .await;
-
-        match result {
-            Ok(res)  => expected_rows_affected(res, 1),
-            Err(err) => Err(log_error(DBError::from(err))),
-        }
-    }
-
     // Delete
 
     pub async fn delete_post(&self, post_id: u64) -> DBResult<()> {
@@ -335,6 +320,7 @@ impl Database {
         }
     }
 
+    #[cfg(test)]
     pub async fn delete_comment(&self, comment_id: u64) -> DBResult<()> {
         let result = sqlx::query(
             "DELETE FROM Comment WHERE id = ?;")
@@ -679,8 +665,8 @@ mod test {
 
         let comment_two_id = retrieved_comment_two.id.unwrap();
 
-        // set first test comment as "deleted", where second test comment is a reply to it
-        assert_eq!(Ok(()), db.update_comment_as_deleted(comment_one_id).await);
+        // set first test comment as "[DELETED]", where second test comment is a reply to it
+        assert_eq!(Ok(()), db.update_comment_body(comment_one_id, "[DELETED]".to_string()).await);
         let comments_after_delete = db.read_comments_of_post(POST_ID).await.unwrap();
         let comment_one_deleted = comments_after_delete
             .iter()
