@@ -362,6 +362,38 @@ impl Database {
             Err(e) => Err(log_error(DBError::from(e)))
         }
     }
+
+    #[cfg(test)]
+    async fn delete_comment_by_id_and_body(&self, id: u64, body: &str) -> DBResult<()> {
+        let result = sqlx::query(
+            "DELETE FROM Comment
+            WHERE commenter_id = ?
+            AND body = ?")
+            .bind(id)
+            .bind(body)
+            .execute(&self.conn_pool)
+            .await;
+        match result {
+            Ok(_)  => Ok(()),
+            Err(e) => Err(DBError::from(e))
+        }
+    }
+
+    #[cfg(test)]
+    async fn delete_post_by_title_and_body(&self, title: &str, body: &str) -> DBResult<()> {
+        let result = sqlx::query(
+            "DELETE FROM Post
+            WHERE title = ?
+            AND body = ?")
+            .bind(title)
+            .bind(body)
+            .execute(&self.conn_pool)
+            .await;
+        match result {
+            Ok(_)  => Ok(()),
+            Err(e) => Err(DBError::from(e)),
+        }
+    }
 }
 
 fn expected_rows_affected(result: MySqlQueryResult, expected_rows: u64) -> DBResult<()> {
@@ -384,10 +416,12 @@ mod test {
     use std::mem::discriminant;
     use std::mem::Discriminant;
     use crate::models::Comment;
+    use crate::models::MySqlBool;
     use crate::models::Post;
 
     use super::Database;
     use super::DBError;
+    use actix_web::test;
     use dotenv;
     
     const DB_ERR_URA: Discriminant<DBError> = discriminant(&DBError::UnexpectedRowsAffected {
@@ -396,14 +430,21 @@ mod test {
     const DB_ERR_NR: Discriminant<DBError> = discriminant(&DBError::NoResult);
     const DB_ERR_SQLX: Discriminant<DBError> = discriminant(&DBError::SQLXError(sqlx::Error::PoolClosed));
 
+    async fn test_context() -> Database {
+        dotenv::dotenv().ok();
+        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
+        Database::new(&db_url).await
+    }
+
     // The below test(s) require that the MySql database is not empty. At minimum, the
     // `devtest_data.sql` should be used.
 
     #[actix_web::test]
     async fn test_errors() {
-        dotenv::dotenv().ok();
-        let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
-        let db: Database = Database::new(&db_url).await;
+        // dotenv::dotenv().ok();
+        // let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
+        // let db: Database = Database::new(&db_url).await;
+        let db: Database = test_context().await;
 
         // CRUD
         // Create
@@ -469,4 +510,148 @@ mod test {
         assert_eq!(DB_ERR_URA, discriminant(&db.delete_comment(0).await.unwrap_err()));
         assert_eq!(DB_ERR_URA, discriminant(&db.delete_comment_like(0, 0).await.unwrap_err()));
     }
+
+    #[actix_web::test]
+    async fn test_post_operations() {
+        let db: Database = test_context().await;
+
+        const POSTER_ID: u64 = 1;  // 1 = devtest_1
+        const TITLE: &str = "#@!test_post_operations";
+        const FIRST_BODY: &str = "test post body";
+        const SECOND_BODY: &str = "updated/edited test post body";
+
+        let post = Post {
+            id: None, poster_id: POSTER_ID, title: TITLE.to_string(),
+            body: FIRST_BODY.to_string(), likes: None, time_stamp: None,
+            edited: None
+        };
+
+        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, FIRST_BODY).await, "failed to setup 1");
+        assert_eq!(Ok(()), db.delete_post_by_title_and_body(TITLE, SECOND_BODY).await, "failed to setup 2");
+
+        let predicate = |p: &Post| p.poster_id.eq(&POSTER_ID) && p.title.eq(TITLE);
+
+        let before_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
+        assert_eq!(0, before_posting.iter().filter(|p| predicate(p)).count());
+
+        assert_eq!(Ok(()), db.create_post(post).await);
+        let after_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
+        assert_eq!(1, after_posting.iter().filter(|p| predicate(p)).count());
+        let retrieved_post_before_edit = after_posting.iter().find(|p| predicate(p)).unwrap();
+        
+        assert_eq!(true, retrieved_post_before_edit.id.is_some());
+        assert_eq!(POSTER_ID, retrieved_post_before_edit.poster_id);
+        assert_eq!(TITLE, retrieved_post_before_edit.title);
+        assert_eq!(FIRST_BODY, retrieved_post_before_edit.body);
+        assert_eq!(Some(0), retrieved_post_before_edit.likes);
+        assert_ne!(None, retrieved_post_before_edit.time_stamp);
+        assert_eq!(true, retrieved_post_before_edit.edited.is_some());
+        assert_eq!(Some(MySqlBool(false)), retrieved_post_before_edit.edited);
+
+        let test_post_id = retrieved_post_before_edit.id.unwrap();
+
+        assert_eq!(Ok(()), db.update_post_body(test_post_id, SECOND_BODY.into()).await);
+        let retrieved_post_after_edit = db.read_post_by_id(test_post_id).await.unwrap();
+
+        assert_eq!(true, retrieved_post_after_edit.id.is_some());
+        assert_eq!(POSTER_ID, retrieved_post_after_edit.poster_id);
+        assert_eq!(TITLE, retrieved_post_after_edit.title);
+        assert_eq!(SECOND_BODY, retrieved_post_after_edit.body);
+        assert_eq!(Some(0), retrieved_post_after_edit.likes);
+        assert_ne!(None, retrieved_post_after_edit.time_stamp);
+        assert_eq!(true, retrieved_post_after_edit.edited.is_some());
+        assert_eq!(Some(MySqlBool(true)), retrieved_post_after_edit.edited);
+
+        assert_eq!(Ok(()), db.delete_post(test_post_id).await);
+        let after_delete = db.read_post_by_id(test_post_id).await;
+        assert_eq!(true, after_delete.is_err());
+        assert_eq!(DB_ERR_NR, discriminant(&after_delete.unwrap_err()));
+    }
+
+    #[actix_web::test]
+    async fn test_comment_operations() {
+        const POST_ID: u64 = 1;
+        const COMMENTER_ID_ONE: u64 = 1;
+        const COMMENTER_ID_TWO: u64 = 2;
+        const FIRST_BODY: &str = "#@!test_comment_operations";
+        const SECOND_BODY: &str = "#@!test_comment_operations updated/edited";
+
+        let db: Database = test_context().await;
+
+        assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_ONE, FIRST_BODY).await);
+        assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_TWO, FIRST_BODY).await);
+        assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_ONE, SECOND_BODY).await);
+        assert_eq!(Ok(()), db.delete_comment_by_id_and_body(COMMENTER_ID_TWO, SECOND_BODY).await);
+
+        let first_comment: Comment = Comment {
+            id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_ONE, body: FIRST_BODY.into(),
+            comment_reply_id: None, likes: None, time_stamp: None, edited: None
+        };
+
+        let predicate = |c: &Comment| c.body.eq(FIRST_BODY) || c.body.eq(SECOND_BODY);
+
+        let before_comment_one = db.read_comments_of_post(POST_ID).await.unwrap();
+        assert_eq!(false, before_comment_one.iter().any(|c| predicate(c)));
+
+        assert_eq!(Ok(()), db.create_comment(first_comment).await);
+        let after_comment_one = db.read_comments_of_post(POST_ID).await.unwrap();
+        assert_eq!(1, after_comment_one.iter().filter(|c| predicate(c)).count());
+        let retrieved_comment_one = after_comment_one.iter().find(|c| predicate(c)).unwrap();
+
+        assert_eq!(true, retrieved_comment_one.id.is_some());
+        assert_eq!(POST_ID, retrieved_comment_one.post_id);
+        assert_eq!(COMMENTER_ID_ONE, retrieved_comment_one.commenter_id);
+        assert_eq!(FIRST_BODY, retrieved_comment_one.body);
+        assert_eq!(None, retrieved_comment_one.comment_reply_id);
+        assert_eq!(Some(0), retrieved_comment_one.likes);
+        assert_eq!(true, retrieved_comment_one.time_stamp.is_some());
+        assert_eq!(Some(MySqlBool(false)), retrieved_comment_one.edited);
+
+        let comment_one_id = retrieved_comment_one.id.unwrap();
+
+        assert_eq!(Ok(()), db.update_comment_body(comment_one_id, SECOND_BODY.into()).await);
+        let after_comment_one_edit = db.read_comments_of_post(POST_ID).await.unwrap();
+        assert_eq!(1, after_comment_one.iter().filter(|c| predicate(c)).count());
+        let retrieved_comment_one_edited = after_comment_one_edit.iter().find(|c| predicate(c)).unwrap();
+
+        assert_eq!(true, retrieved_comment_one_edited.id.is_some());
+        assert_eq!(POST_ID, retrieved_comment_one_edited.post_id);
+        assert_eq!(COMMENTER_ID_ONE, retrieved_comment_one_edited.commenter_id);
+        assert_eq!(SECOND_BODY, retrieved_comment_one_edited.body);
+        assert_eq!(None, retrieved_comment_one_edited.comment_reply_id);
+        assert_eq!(Some(0), retrieved_comment_one_edited.likes);
+        assert_eq!(true, retrieved_comment_one_edited.time_stamp.is_some());
+        assert_eq!(Some(MySqlBool(true)), retrieved_comment_one_edited.edited);
+
+        let comment_two = Comment {
+            id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_TWO,
+            body: FIRST_BODY.into(), comment_reply_id: Some(comment_one_id), likes: None,
+            time_stamp: None, edited: None
+        };
+
+        assert_eq!(Ok(()), db.create_comment(comment_two).await);
+        let after_comment_two = db.read_comments_of_post(POST_ID).await.unwrap();
+        assert_eq!(2, after_comment_two.iter().filter(|c| predicate(c)).count());
+        assert_eq!(1, after_comment_two
+            .iter()
+            .filter(|c| predicate(c) && c.comment_reply_id.is_some_and(|id| id == comment_one_id))
+            .count()
+        );
+        let retrieved_comment_two = after_comment_two
+            .iter()
+            .find(|c| predicate(c) && c.comment_reply_id.is_some_and(|id| id == comment_one_id))
+            .unwrap();
+
+        assert_eq!(true, retrieved_comment_two.id.is_some());
+        assert_eq!(POST_ID, retrieved_comment_two.post_id);
+        assert_eq!(COMMENTER_ID_TWO, retrieved_comment_two.commenter_id);
+        assert_eq!(FIRST_BODY, retrieved_comment_two.body);
+        assert_eq!(Some(comment_one_id), retrieved_comment_two.comment_reply_id);
+        assert_eq!(Some(0), retrieved_comment_two.likes);
+        assert_eq!(true, retrieved_comment_two.time_stamp.is_some());
+        assert_eq!(Some(MySqlBool(false)), retrieved_comment_two.edited);
+
+        // TODO: review deletion (might add a pseudo delete for comment fk constraint)
+    }
+
 }

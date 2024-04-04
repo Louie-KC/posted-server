@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 /// Bool selection in queries must resemble: "<column_name> as `alias: _`"
 /// 
 /// Reference: https://docs.rs/sqlx/latest/sqlx/macro.query_as.html#column-type-override-infer-from-struct-field
-#[derive(sqlx::Type, Debug, Deserialize, Serialize)]
+#[derive(sqlx::Type, Debug, Deserialize, Serialize, PartialEq)]
 #[sqlx(transparent)]
 pub struct MySqlBool (pub bool);
 

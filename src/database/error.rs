@@ -14,6 +14,18 @@ impl From<sqlx::Error> for DBError {
     }
 }
 
+impl PartialEq for DBError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::UnexpectedRowsAffected { expected: l_expected, actual: l_actual },
+                Self::UnexpectedRowsAffected { expected: r_expected, actual: r_actual }) => {
+                    l_expected == r_expected && l_actual == r_actual
+                },
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
 impl std::fmt::Display for DBError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let output = match self {
