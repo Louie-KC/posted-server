@@ -1,5 +1,7 @@
 use posted_mysql;
 
+-- (Dev)Test ID/PK range: 0..=100.
+
 DROP TABLE IF EXISTS PostLike;
 DROP TABLE IF EXISTS CommentLike;
 DROP TABLE IF EXISTS Comment;
@@ -14,6 +16,8 @@ CREATE TABLE Account (
     UNIQUE (username)
 );
 
+ALTER TABLE Account AUTO_INCREMENT = 101;
+
 CREATE TABLE Post (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     poster_id BIGINT UNSIGNED NOT NULL,
@@ -24,6 +28,8 @@ CREATE TABLE Post (
     PRIMARY KEY (id),
     FOREIGN KEY (poster_id) REFERENCES Account(id)
 );
+
+ALTER TABLE Post AUTO_INCREMENT = 101;
 
 CREATE TABLE Comment (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -38,6 +44,8 @@ CREATE TABLE Comment (
     FOREIGN KEY (commenter_id) REFERENCES Account(id),
     FOREIGN KEY (comment_reply_id) REFERENCES Comment(id)
 );
+
+ALTER TABLE Comment AUTO_INCREMENT = 101;
 
 CREATE TABLE PostLike (
     post_id BIGINT UNSIGNED NOT NULL,
