@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use log::{info, warn};
 use uuid::Uuid;
 
-use crate::cache::cache::Cache;
+use crate::cache::cache::{Cache, UserToken};
 use super::backup_auth::OfflineAuth;
 use super::redis_auth::RedisAuth;
 
@@ -34,17 +34,26 @@ impl AuthService {
     }
 
     async fn maybe_reconnect(&mut self) -> () {
-        if self.misses % RECONNECT_FREQUENCY == 0 {
-            info!("AuthService: Offline & re-connect frequency met. Misses: {}", self.misses);
-            info!("AuthService: Attempting to (re)connect to '{}'", self.addr);
+        if self.misses % RECONNECT_FREQUENCY != 0 {
+            return
+        }
+        info!("AuthService: Offline & re-connect frequency met. Misses: {}", self.misses);
+        info!("AuthService: Attempting to (re)connect to '{}'", self.addr);
+
+        if let Store::Offline(offline) = &self.store {
             if let Ok(redis_cache) = try_connect(&self.addr) {
+                if let Err(_) = migrate_to_online(offline, &redis_cache).await {
+                    warn!("AuthService: attempted but failed to migrate to Redis server");
+                    return
+                }
                 self.store = Store::Online(RedisAuth::new(redis_cache));
                 self.misses = 0;
-                info!("AuthService: connection to Redis server established")
+                info!("AuthService: re-connected and migrated to Redis server")
             } else {
-                info!("AuthService: failed to (re)connect to '{}'", self.addr)
+                info!("AuthService: failed to re-connect to '{}'", self.addr)
             }
         }
+    
     }
 
     pub async fn generate_user_token(&mut self, user_id: u64) -> Result<Uuid, ()> {
@@ -118,5 +127,15 @@ fn try_connect(addr: &str) -> Result<Cache, ()> {
             warn!("AuthService::try_connect({}): connection failed", addr);
             Err(())
         },
+    }
+}
+
+async fn migrate_to_online(offline: &OfflineAuth, online: &Cache) -> Result<(), ()> {
+    let entries = offline.tokens.iter()
+                                .map(|entry| UserToken { user_id: *entry.0, uuid: *entry.1, expiry_sec: 120 })
+                                .collect();
+    match online.set_multiple(entries, false, true).await {
+        Ok(_)  => Ok(()),
+        Err(_) => Err(()),
     }
 }
