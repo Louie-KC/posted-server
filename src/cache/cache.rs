@@ -2,12 +2,12 @@ use log::warn;
 
 use uuid::Uuid;
 
-use redis::{aio::MultiplexedConnection, AsyncCommands, Pipeline};
+use redis::{aio::MultiplexedConnection, AsyncCommands, ConnectionLike, Pipeline};
 
 pub struct UserToken {
-    uuid: Uuid,
-    user_id: u64,
-    expiry_sec: u64
+    pub uuid: Uuid,
+    pub user_id: u64,
+    pub expiry_sec: u64
 }
 
 pub struct Cache {
@@ -15,9 +15,12 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub async fn new(url: &str) -> Self {
-        let client = redis::Client::open(url).unwrap();
-        Cache { client: client }
+    pub fn new(url: &str) -> Result<Self, ()> {
+        let mut client = redis::Client::open(url).unwrap();
+        match client.check_connection() {
+            true  => Ok(Cache { client: client }),
+            false => Err(())
+        }
     }
 
     /// Set a single user token. Overwrites.
@@ -71,6 +74,7 @@ impl Cache {
         overwrite: bool,
     ) -> Result<(), ()> {
         let mut conn = self.get_async_conn().await?;
+
         let mut pipe = redis::pipe();
 
         entries.iter().for_each(|entry| add_to_pipe(&mut pipe, entry, symmetric, overwrite));
@@ -97,8 +101,8 @@ impl Cache {
     pub async fn get_token_by_user_id(&self, key: u64) -> Result<Uuid, ()> {
         let mut conn = self.get_async_conn().await?;
         
-        match conn.get::<&u64, u128>(&key).await {
-            Ok(uuid) => Ok(Uuid::from_u128(uuid)),
+        match conn.get::<&u64, String>(&key).await {
+            Ok(uuid) => Ok(Uuid::parse_str(&uuid).unwrap()),
             Err(_) => Err(())
         }
     }
@@ -141,19 +145,21 @@ mod test {
 
     const SHORT_EXPIRY: u64 = 4;
 
-    async fn test_context() -> Cache {
+    fn test_context() -> Cache {
         dotenv::dotenv().ok();
         let cache_url = std::env::var("REDIS_DATABASE_URL").expect("REDIS_DATABASE_URL is not set");
-        Cache::new(&cache_url).await
+        Cache::new(&cache_url).unwrap()
     }
 
     #[actix_web::test]
     async fn test_set_single() {
-        let cache = test_context().await;
+        let cache = test_context();
         let mut conn = cache.get_async_conn().await.unwrap();
 
         let _ = conn.del::<&str, u8>("!test_set_single!1").await;
         let _ = conn.del::<&str, u8>("!test_set_single!2").await;
+        conn.del::<&str, u8>("!test_set_single!1").await;
+        conn.del::<&str, u8>("!test_set_single!2").await;
         assert_eq!(Ok(()), cache.set_key("!test_set_single!1", "!test!1!", SHORT_EXPIRY).await);
         assert_eq!(Ok(()), cache.set_key("!test_set_single!2", "!test!2!", SHORT_EXPIRY).await);
 
@@ -168,7 +174,7 @@ mod test {
 
     #[actix_web::test]
     async fn test_set_single_symmetric_overwrite() {
-        let cache = test_context().await;
+        let cache = test_context();
         let mut conn = cache.get_async_conn().await.unwrap();
 
         let uuid = Uuid::new_v4();
@@ -229,7 +235,7 @@ mod test {
 
     #[actix_web::test]
     async fn test_set_multiple_asymmetric_overwrite() {
-        let cache = test_context().await;
+        let cache = test_context();
         let mut conn = cache.get_async_conn().await.unwrap();
 
         let uuid_1 = Uuid::new_v4();
@@ -293,7 +299,7 @@ mod test {
 
     #[actix_web::test]
     async fn test_set_multiple_asymmetric_no_overwrite() {
-        let cache = test_context().await;
+        let cache = test_context();
         let mut conn = cache.get_async_conn().await.unwrap();
 
         let _ = conn.del::<u64, String>(2).await;

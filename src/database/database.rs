@@ -86,7 +86,7 @@ impl Database {
 
     // Read
 
-    pub async fn read_account_by_id(&self, id: u64) -> DBResult<AccountFromDB> {
+    pub async fn _read_account_by_id(&self, id: u64) -> DBResult<AccountFromDB> {
         // TODO, avoid cast and return null for an None for id
         let result = sqlx::query_as!(AccountFromDB,
             "SELECT CAST(0 AS UNSIGNED) as 'id', username, password_hash
@@ -117,7 +117,7 @@ impl Database {
         }
     }
 
-    pub async fn read_account_id(&self, details: Account) -> DBResult<u64> {
+    pub async fn _read_account_id(&self, details: Account) -> DBResult<u64> {
         let result = sqlx::query(
             "SELECT id
             FROM Account
@@ -421,7 +421,6 @@ mod test {
 
     use super::Database;
     use super::DBError;
-    use actix_web::test;
     use dotenv;
     
     const DB_ERR_URA: Discriminant<DBError> = discriminant(&DBError::UnexpectedRowsAffected {

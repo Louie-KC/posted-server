@@ -67,9 +67,9 @@ pub struct AccountID {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AccountPasswordUpdate {
-    pub account_id: u64,
-    pub old: String,
-    pub new: String
+    pub username: String,
+    pub old_password: String,
+    pub new_password: String
 }
 
 #[derive(Debug, Deserialize, Serialize)]

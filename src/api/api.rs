@@ -1,16 +1,18 @@
-// use std::sync::Mutex;
+use std::sync::Mutex;
 
 use actix_web::{delete, get, post, put, web, HttpResponse};
 use actix_web::web::{Data, Json, Path, ServiceConfig};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 
+use log::warn;
 use serde_json::json;
 
-use crate::cache::cache::Cache;
+use crate::auth::auth::AuthService;
+// use crate::cache::cache::Cache;
 use crate::database::{database::Database, error::DBError};
 use crate::models::*;
 // use crate::auth::auth::AuthService;
-use crate::auth::redis_auth;
+// use crate::auth::redis_auth;
 
 use argon2::{
     password_hash::{
@@ -76,7 +78,7 @@ pub async fn create_account(
 #[post("/account/authenticate")]
 pub async fn login(
     db: Data<Database>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     argon2: Data<Argon2<'_>>,
     data: Json<Account>
 ) -> HttpResponse {
@@ -95,12 +97,15 @@ pub async fn login(
 
     let parsed_pw_hash = match PasswordHash::new(&account_details.password_hash) {
         Ok(parsed) => parsed,
-        Err(_) => return HttpResponse::InternalServerError().finish()
+        Err(_) => {
+            warn!("login: PasswordHash could not be created for user '{}'", data.username);
+            return HttpResponse::InternalServerError().finish()
+        }
     };
 
     match argon2.verify_password(data.password.as_bytes(), &parsed_pw_hash) {
         Ok(()) => {
-            let token = redis_auth::generate_for_user(&cache, account_details.id).await;
+            let token = auth.lock().unwrap().generate_user_token(account_details.id).await;
             HttpResponse::Ok().json(json!({"id": account_details.id, "token": token}))
         },
         Err(_) => HttpResponse::BadRequest().finish()
@@ -110,37 +115,37 @@ pub async fn login(
 #[put("/account/change_password")]
 pub async fn change_password(
     db: Data<Database>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     argon2: Data<Argon2<'_>>,
     bearer: BearerAuth,
     data: Json<AccountPasswordUpdate>
 ) -> HttpResponse {
-    if data.old.is_empty() || data.new.is_empty() {
+    if data.old_password.is_empty() || data.new_password.is_empty() {
         return HttpResponse::BadRequest().reason("One or both passwords are empty").finish()
     }
-    if data.new.eq(&data.old) {
+    if data.new_password.eq(&data.old_password) {
         return HttpResponse::BadRequest().reason("Old and new are identical").finish();
     }
 
     // Copy/use necessary data and then drop
-    let id = data.account_id;
-    let old_pw = data.old.clone();
+    let username: String = data.username.clone();
+    let old_pw = data.old_password.clone();
     let salt = SaltString::generate(&mut OsRng);
-    let new_pw_hash = match argon2.hash_password(data.new.as_bytes(), &salt) {
+    let new_pw_hash = match argon2.hash_password(data.new_password.as_bytes(), &salt) {
         Ok(hash) => hash,
         Err(_) => return HttpResponse::InternalServerError().finish()
     };
     std::mem::drop(data);  // TODO: Zeroize struct or just new and old passwords
 
-    if let Err(err_response) = verify_token(id, bearer.token(), cache).await {
+    let old_account_details = match db.read_account_by_username(&username).await {
+        Ok(account_details) => account_details,
+        Err(DBError::NoResult) => return HttpResponse::BadRequest().reason("Username does not exist").finish(),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+
+    if let Err(err_response) = verify_token(old_account_details.id, bearer.token(), auth).await {
         return err_response;
     }
-
-    let old_account_details = match db.read_account_by_id(id).await {
-        Ok(acc) => acc,
-        Err(DBError::NoResult) => return HttpResponse::BadRequest().reason("Invalid account id").finish(),
-        Err(_) => return HttpResponse::InternalServerError().finish()
-    };
 
     let old_pw_hash = match PasswordHash::new(&old_account_details.password_hash) {
         Ok(hash) => hash,
@@ -152,7 +157,7 @@ pub async fn change_password(
     }
     std::mem::drop(old_pw);  // TODO: Zeroize struct or just new and old passwords
 
-    match db.update_account_password(id, &old_account_details.password_hash, &new_pw_hash.to_string()).await {
+    match db.update_account_password(old_account_details.id, &old_account_details.password_hash, &new_pw_hash.to_string()).await {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {
             HttpResponse::BadRequest().finish()
@@ -174,7 +179,7 @@ pub async fn get_posts(db: Data<Database>) -> HttpResponse {
 pub async fn create_post(
     db: Data<Database>,
     data: Json<Post>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     if data.title.is_empty() {
@@ -184,7 +189,7 @@ pub async fn create_post(
         return HttpResponse::BadRequest().reason("Post has no body/content").finish()
     }
 
-    if let Err(err_response) = verify_token(data.poster_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.poster_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -220,7 +225,7 @@ pub async fn update_post(
     db: Data<Database>,
     path: Path<String>,
     data: Json<PostCommentUpdate>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     let post_id = match path.parse::<u64>() {
@@ -228,7 +233,7 @@ pub async fn update_post(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -246,7 +251,7 @@ pub async fn delete_post(
     db: Data<Database>,
     path: Path<String>,
     data: Json<AccountID>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     let post_id = match path.parse::<u64>() {
@@ -254,7 +259,7 @@ pub async fn delete_post(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid post_id format").finish()
     };
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -285,14 +290,14 @@ pub async fn get_post_comments(db: Data<Database>, path: Path<String>) -> HttpRe
 pub async fn make_post_comment(
     db: Data<Database>,
     data: Json<Comment>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     if data.body.is_empty() {
         return HttpResponse::BadRequest().reason("Comment without body").finish()
     }
 
-    if let Err(err_response) = verify_token(data.commenter_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.commenter_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -316,7 +321,7 @@ pub async fn update_comment(
     db: Data<Database>,
     path: Path<String>,
     data: Json<PostCommentUpdate>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     let comment_id = match path.parse::<u64>() {
@@ -324,7 +329,7 @@ pub async fn update_comment(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -342,7 +347,7 @@ pub async fn delete_comment(
     db: Data<Database>,
     path: Path<String>,
     data: Json<AccountID>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     let comment_id: u64 = match path.parse::<u64>() {
@@ -350,7 +355,7 @@ pub async fn delete_comment(
         Err(_) => return HttpResponse::BadRequest().reason("Invalid comment_id format").finish()
     };
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -395,14 +400,14 @@ pub async fn get_user_comments(db: Data<Database>, path: Path<String>) -> HttpRe
 pub async fn vote_on_post(
     db: Data<Database>,
     data: Json<PostLike>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     if data.account_id == 0 || data.post_id == 0 {
         return HttpResponse::BadRequest().finish()
     }
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -423,14 +428,14 @@ pub async fn vote_on_post(
 pub async fn vote_on_comment(
     db: Data<Database>,
     data: Json<CommentLike>,
-    cache: Data<Cache>,
+    auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
     if data.account_id == 0 || data.comment_id == 0 {
         return HttpResponse::BadRequest().finish()
     }
 
-    if let Err(err_response) = verify_token(data.account_id, bearer.token(), cache).await {
+    if let Err(err_response) = verify_token(data.account_id, bearer.token(), auth).await {
         return err_response;
     }
 
@@ -454,9 +459,9 @@ pub async fn vote_on_comment(
 pub async fn verify_token(
     account_id: u64,
     token_str: &str,
-    cache: Data<Cache>
+    auth: Data<Mutex<AuthService>>
 ) -> Result<(), HttpResponse> {
-    match redis_auth::validate_str(&cache, account_id, token_str).await {
+    match auth.lock().unwrap().validate(account_id, token_str).await {
         Ok(true)  => Ok(()),
         Ok(false) => Err(HttpResponse::Unauthorized().finish()),
         Err(_)    => Err(HttpResponse::Unauthorized().reason("Invalid token").finish()),
