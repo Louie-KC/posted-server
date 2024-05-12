@@ -10,6 +10,32 @@ pub struct UserToken {
     pub expiry_sec: u64
 }
 
+trait RedisPipelineExt {
+    fn set_ex_symmetric(&mut self, entry: &UserToken) -> &mut Self;
+    fn set_ex_nx(&mut self, entry: &UserToken) -> &mut Self;
+    fn set_ex_nx_symmetric(&mut self, entry: &UserToken) -> &mut Self;
+}
+
+impl RedisPipelineExt for redis::Pipeline {
+    fn set_ex_symmetric(&mut self, entry: &UserToken) -> &mut Self {
+        self.cmd("SET").arg(entry.user_id).arg(entry.uuid.to_string())
+            .arg("EX").arg(entry.expiry_sec)
+            .cmd("SET").arg(entry.uuid.to_string()).arg(entry.user_id)
+            .arg("EX").arg(entry.expiry_sec)
+    }
+
+    fn set_ex_nx(&mut self, entry: &UserToken) -> &mut Self {
+        self.cmd("SET").arg(entry.user_id).arg(entry.uuid.to_string())
+            .arg("EX").arg(entry.expiry_sec).arg("NX")
+    }
+
+    fn set_ex_nx_symmetric(&mut self, entry: &UserToken) -> &mut Self {
+        self.cmd("SET").arg(entry.user_id).arg(entry.uuid.to_string())
+            .arg("EX").arg(entry.expiry_sec).arg("NX")
+            .cmd("SET").arg(entry.uuid.to_string()).arg(entry.user_id)
+            .arg("EX").arg(entry.expiry_sec).arg("NX")
+    }
+}
 pub struct Cache {
     client: redis::Client
 }
@@ -117,18 +143,11 @@ impl Cache {
 
 fn add_to_pipe(pipe: &mut Pipeline, entry: &UserToken, symmetric: bool, overwrite: bool) -> () {
     let uuid = entry.uuid.to_string();
-    let _ = match (symmetric, overwrite) {
-        (true, true)   => pipe.set_ex(entry.user_id, &uuid, entry.expiry_sec)
-                                .set_ex(uuid, entry.user_id, entry.expiry_sec)
-                                .ignore(),
-        (true, false)  => pipe.cmd("SET").arg(entry.user_id).arg(&uuid).arg("NX")
-                                .arg("EX").arg(entry.expiry_sec).ignore()
-                                .cmd("SET").arg(uuid).arg(entry.user_id).arg("NX")
-                                .arg("EX").arg(entry.expiry_sec).ignore(),
-        (false, true)  => pipe.set_ex(entry.user_id, uuid, entry.expiry_sec).ignore(),
-        (false, false) => pipe.cmd("SET").arg(entry.user_id).arg(uuid).arg("NX").ignore()
-                                .cmd("EXPIRE").arg(entry.user_id).arg(entry.expiry_sec)
-                                .arg("NX").ignore()
+    match (symmetric, overwrite) {
+        (true, true)   => pipe.set_ex_symmetric(entry),
+        (true, false)  => pipe.set_ex_nx_symmetric(entry),
+        (false, true)  => pipe.set_ex(entry.user_id, entry.uuid.to_string(), entry.expiry_sec),
+        (false, false) => pipe.set_ex_nx(entry),
     };
 }
 
