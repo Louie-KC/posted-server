@@ -142,7 +142,6 @@ impl Cache {
 }
 
 fn add_to_pipe(pipe: &mut Pipeline, entry: &UserToken, symmetric: bool, overwrite: bool) -> () {
-    let uuid = entry.uuid.to_string();
     match (symmetric, overwrite) {
         (true, true)   => pipe.set_ex_symmetric(entry),
         (true, false)  => pipe.set_ex_nx_symmetric(entry),
@@ -177,8 +176,8 @@ mod test {
 
         let _ = conn.del::<&str, u8>("!test_set_single!1").await;
         let _ = conn.del::<&str, u8>("!test_set_single!2").await;
-        conn.del::<&str, u8>("!test_set_single!1").await;
-        conn.del::<&str, u8>("!test_set_single!2").await;
+        let _ = conn.del::<&str, u8>("!test_set_single!1").await;
+        let _ = conn.del::<&str, u8>("!test_set_single!2").await;
         assert_eq!(Ok(()), cache.set_key("!test_set_single!1", "!test!1!", SHORT_EXPIRY).await);
         assert_eq!(Ok(()), cache.set_key("!test_set_single!2", "!test!2!", SHORT_EXPIRY).await);
 

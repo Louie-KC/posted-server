@@ -8,11 +8,8 @@ use log::warn;
 use serde_json::json;
 
 use crate::auth::auth::AuthService;
-// use crate::cache::cache::Cache;
 use crate::database::{database::Database, error::DBError};
 use crate::models::*;
-// use crate::auth::auth::AuthService;
-// use crate::auth::redis_auth;
 
 use argon2::{
     password_hash::{
@@ -75,7 +72,7 @@ pub async fn create_account(
     }
 }
 
-#[post("/account/authenticate")]
+#[post("/account/login")]
 pub async fn login(
     db: Data<Database>,
     auth: Data<Mutex<AuthService>>,
@@ -105,7 +102,10 @@ pub async fn login(
 
     match argon2.verify_password(data.password.as_bytes(), &parsed_pw_hash) {
         Ok(()) => {
-            let token = auth.lock().unwrap().generate_user_token(account_details.id).await;
+            let token = match auth.lock().unwrap().generate_user_token(account_details.id).await {
+                Ok(token) => token,
+                Err(_) => return HttpResponse::InternalServerError().finish()
+            };
             HttpResponse::Ok().json(json!({"id": account_details.id, "token": token}))
         },
         Err(_) => HttpResponse::BadRequest().finish()
@@ -178,7 +178,7 @@ pub async fn get_posts(db: Data<Database>) -> HttpResponse {
 #[post("/posts")]
 pub async fn create_post(
     db: Data<Database>,
-    data: Json<Post>,
+    data: Json<NewPost>,
     auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
@@ -193,12 +193,12 @@ pub async fn create_post(
         return err_response;
     }
 
-    let post = Post { 
-        id: None, poster_id: data.poster_id, title: data.title.clone(),
-        body: data.body.clone(), likes: None, time_stamp: None, edited: Some(MySqlBool(false))
+    let new_post = NewPost {
+        poster_id: data.poster_id, title: data.title.clone(),
+        body: data.body.clone()
     };
     
-    let result = db.create_post(post).await;
+    let result = db.create_post(new_post).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(_) => HttpResponse::InternalServerError().finish()
@@ -289,7 +289,7 @@ pub async fn get_post_comments(db: Data<Database>, path: Path<String>) -> HttpRe
 #[post("/comment")]
 pub async fn make_post_comment(
     db: Data<Database>,
-    data: Json<Comment>,
+    data: Json<NewComment>,
     auth: Data<Mutex<AuthService>>,
     bearer: BearerAuth
 ) -> HttpResponse {
@@ -301,12 +301,12 @@ pub async fn make_post_comment(
         return err_response;
     }
 
-    let comment = Comment { id: None, post_id: data.post_id,
-        commenter_id: data.commenter_id, body: data.body.clone(),
-        comment_reply_id: data.comment_reply_id, likes: None, time_stamp: None, edited: Some(MySqlBool(false))
+    let new_comment = NewComment {
+        post_id: data.post_id, commenter_id: data.commenter_id,
+        comment_reply_id: data.comment_reply_id, body: data.body.clone()
     };
     
-    let result = db.create_comment(comment).await;
+    let result = db.create_comment(new_comment).await;
     match result {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(DBError::UnexpectedRowsAffected{ expected: 1, actual: 0 }) => {

@@ -2,7 +2,7 @@ use log::warn;
 use sqlx::{MySql, Pool, Row};
 use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
 
-use crate::models::{Account, AccountFromDB, Comment, Post};
+use crate::models::{AccountFromDB, Comment, NewComment, NewPost, Post};
 use crate::database::error::DBError;
 
 type DBResult<T> = Result<T, DBError>;
@@ -33,7 +33,7 @@ impl Database {
         }
     }
 
-    pub async fn create_post(&self, post: Post) -> DBResult<()> {
+    pub async fn create_post(&self, post: NewPost) -> DBResult<()> {
         match sqlx::query("INSERT INTO Post (poster_id, title, body) VALUES (?, ?, ?);")
             .bind(post.poster_id)
             .bind(post.title)
@@ -46,7 +46,7 @@ impl Database {
         }
     }
 
-    pub async fn create_comment(&self, comment: Comment) -> DBResult<()> {
+    pub async fn create_comment(&self, comment: NewComment) -> DBResult<()> {
         match sqlx::query("INSERT INTO Comment (post_id, commenter_id, body, comment_reply_id) VALUES (?, ?, ?, ?);")
             .bind(comment.post_id)
             .bind(comment.commenter_id)
@@ -113,24 +113,6 @@ impl Database {
         
         match result {
             Ok(acc) => Ok(acc),
-            Err(e) => Err(log_error(DBError::from(e)))
-        }
-    }
-
-    pub async fn _read_account_id(&self, details: Account) -> DBResult<u64> {
-        let result = sqlx::query(
-            "SELECT id
-            FROM Account
-            WHERE username = ?
-            AND password_hash = ?
-            LIMIT 1;")
-            .bind(details.username)
-            .bind(details.password)
-            .fetch_one(&self.conn_pool)
-            .await;
-        
-        match result {
-            Ok(id) => Ok(id.try_get(0)?),
             Err(e) => Err(log_error(DBError::from(e)))
         }
     }
@@ -417,6 +399,8 @@ mod test {
     use std::mem::Discriminant;
     use crate::models::Comment;
     use crate::models::MySqlBool;
+    use crate::models::NewComment;
+    use crate::models::NewPost;
     use crate::models::Post;
 
     use super::Database;
@@ -440,47 +424,34 @@ mod test {
 
     #[actix_web::test]
     async fn test_errors() {
-        // dotenv::dotenv().ok();
-        // let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
-        // let db: Database = Database::new(&db_url).await;
         let db: Database = test_context().await;
 
         // CRUD
+
         // Create
-        let post_invalid_poster_id = Post {
-            id: None,
+        let post_invalid_poster_id = NewPost {
             poster_id: 0,
             title: "bad_posted_id".to_string(),
             body: "bad_posted_id".to_string(),
-            likes: None,
-            time_stamp: None,
-            edited: None
         };
         assert_eq!(DB_ERR_SQLX, discriminant(&db.create_post(post_invalid_poster_id).await.unwrap_err()));
 
-        let comment_invalid_post_id = Comment {
-            id: None,
-            post_id: 0,
+        let comment_on_invalid_post_id = NewComment {
+            post_id: 0,  // all ids start from 1
             commenter_id: 1,
-            body: "".into(),
             comment_reply_id: None,
-            likes: None,
-            time_stamp: None,
-            edited: None
+            body: "".into()
         };
-        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_invalid_post_id).await.unwrap_err()));
 
-        let comment_invalid_commenter_id = Comment {
-            id: None,
+        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_on_invalid_post_id).await.unwrap_err()));
+
+        let comment_by_invalid_commenter_id = NewComment {
             post_id: 1,
-            commenter_id: 0,
-            body: "".into(),
+            commenter_id: 0, // all ids start from 1
             comment_reply_id: None,
-            likes: None,
-            time_stamp: None,
-            edited: None
+            body: "".into()
         };
-        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_invalid_commenter_id).await.unwrap_err()));
+        assert_eq!(DB_ERR_SQLX, discriminant(&db.create_comment(comment_by_invalid_commenter_id).await.unwrap_err()));
 
         // Invalid post_id
         assert_eq!(DB_ERR_URA, discriminant(&db.create_post_like(0, 1).await.unwrap_err()));
@@ -491,7 +462,6 @@ mod test {
         assert_eq!(DB_ERR_URA, discriminant(&db.create_comment_like(0, 1).await.unwrap_err()));
         // Invalid account_id
         assert_eq!(DB_ERR_URA, discriminant(&db.create_comment_like(1, 0).await.unwrap_err()));
-
         
         // Read
         assert_eq!(DB_ERR_NR, discriminant(&db.read_post_by_id(0).await.unwrap_err()));
@@ -530,39 +500,33 @@ mod test {
         assert_eq!(0, before_posting.iter().filter(|p| predicate(p)).count());
         
         // Create, add, and check that the test post was added
-        let post = Post {
-            id: None, poster_id: POSTER_ID, title: TITLE.to_string(),
-            body: FIRST_BODY.to_string(), likes: None, time_stamp: None,
-            edited: None
+        let new_post = NewPost {
+            poster_id: POSTER_ID,
+            title: TITLE.to_string(),
+            body: FIRST_BODY.to_string()
         };
-        assert_eq!(Ok(()), db.create_post(post).await);
+        assert_eq!(Ok(()), db.create_post(new_post).await);
         let after_posting = db.read_posts_by_user(POSTER_ID).await.unwrap();
         assert_eq!(1, after_posting.iter().filter(|p| predicate(p)).count());
         let retrieved_post_before_edit = after_posting.iter().find(|p| predicate(p)).unwrap();
         
-        assert_eq!(true, retrieved_post_before_edit.id.is_some());
         assert_eq!(POSTER_ID, retrieved_post_before_edit.poster_id);
         assert_eq!(TITLE, retrieved_post_before_edit.title);
         assert_eq!(FIRST_BODY, retrieved_post_before_edit.body);
-        assert_eq!(Some(0), retrieved_post_before_edit.likes);
-        assert_ne!(None, retrieved_post_before_edit.time_stamp);
-        assert_eq!(true, retrieved_post_before_edit.edited.is_some());
-        assert_eq!(Some(MySqlBool(false)), retrieved_post_before_edit.edited);
+        assert_eq!(0, retrieved_post_before_edit.likes);
+        assert_eq!(MySqlBool(false), retrieved_post_before_edit.edited);
 
-        let test_post_id = retrieved_post_before_edit.id.unwrap();
+        let test_post_id = retrieved_post_before_edit.id;
 
         // Edit the test post and re-check
         assert_eq!(Ok(()), db.update_post_body(test_post_id, SECOND_BODY.into()).await);
         let retrieved_post_after_edit = db.read_post_by_id(test_post_id).await.unwrap();
 
-        assert_eq!(true, retrieved_post_after_edit.id.is_some());
         assert_eq!(POSTER_ID, retrieved_post_after_edit.poster_id);
         assert_eq!(TITLE, retrieved_post_after_edit.title);
         assert_eq!(SECOND_BODY, retrieved_post_after_edit.body);
-        assert_eq!(Some(0), retrieved_post_after_edit.likes);
-        assert_ne!(None, retrieved_post_after_edit.time_stamp);
-        assert_eq!(true, retrieved_post_after_edit.edited.is_some());
-        assert_eq!(Some(MySqlBool(true)), retrieved_post_after_edit.edited);
+        assert_eq!(0, retrieved_post_after_edit.likes);
+        assert_eq!(MySqlBool(true), retrieved_post_after_edit.edited);
 
         // Delete the test post and check that it cannot be read
         assert_eq!(Ok(()), db.delete_post(test_post_id).await);
@@ -597,9 +561,11 @@ mod test {
         assert_eq!(false, before_comment_one.iter().any(|c| predicate(c)));
 
         // Create, add and check first test comment
-        let first_comment: Comment = Comment {
-            id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_ONE, body: FIRST_BODY.into(),
-            comment_reply_id: None, likes: None, time_stamp: None, edited: None
+        let first_comment = NewComment {
+            post_id: POST_ID,
+            commenter_id: COMMENTER_ID_ONE,
+            comment_reply_id: None,
+            body: FIRST_BODY.to_string()
         };
 
         assert_eq!(Ok(()), db.create_comment(first_comment).await);
@@ -607,16 +573,14 @@ mod test {
         assert_eq!(1, after_comment_one.iter().filter(|c| predicate(c)).count());
         let retrieved_comment_one = after_comment_one.iter().find(|c| predicate(c)).unwrap();
 
-        assert_eq!(true, retrieved_comment_one.id.is_some());
         assert_eq!(POST_ID, retrieved_comment_one.post_id);
         assert_eq!(COMMENTER_ID_ONE, retrieved_comment_one.commenter_id);
         assert_eq!(FIRST_BODY, retrieved_comment_one.body);
         assert_eq!(None, retrieved_comment_one.comment_reply_id);
-        assert_eq!(Some(0), retrieved_comment_one.likes);
-        assert_eq!(true, retrieved_comment_one.time_stamp.is_some());
-        assert_eq!(Some(MySqlBool(false)), retrieved_comment_one.edited);
+        assert_eq!(0, retrieved_comment_one.likes);
+        assert_eq!(MySqlBool(false), retrieved_comment_one.edited);
 
-        let comment_one_id = retrieved_comment_one.id.unwrap();
+        let comment_one_id = retrieved_comment_one.id;
 
         // Update/edit first test comment and check
         assert_eq!(Ok(()), db.update_comment_body(comment_one_id, SECOND_BODY.into()).await);
@@ -624,20 +588,19 @@ mod test {
         assert_eq!(1, after_comment_one.iter().filter(|c| predicate(c)).count());
         let retrieved_comment_one_edited = after_comment_one_edit.iter().find(|c| predicate(c)).unwrap();
 
-        assert_eq!(true, retrieved_comment_one_edited.id.is_some());
         assert_eq!(POST_ID, retrieved_comment_one_edited.post_id);
         assert_eq!(COMMENTER_ID_ONE, retrieved_comment_one_edited.commenter_id);
         assert_eq!(SECOND_BODY, retrieved_comment_one_edited.body);
         assert_eq!(None, retrieved_comment_one_edited.comment_reply_id);
-        assert_eq!(Some(0), retrieved_comment_one_edited.likes);
-        assert_eq!(true, retrieved_comment_one_edited.time_stamp.is_some());
-        assert_eq!(Some(MySqlBool(true)), retrieved_comment_one_edited.edited);
+        assert_eq!(0, retrieved_comment_one_edited.likes);
+        assert_eq!(MySqlBool(true), retrieved_comment_one_edited.edited);
 
         // Create, add, and check second test comment
-        let comment_two = Comment {
-            id: None, post_id: POST_ID, commenter_id: COMMENTER_ID_TWO,
-            body: FIRST_BODY.into(), comment_reply_id: Some(comment_one_id), likes: None,
-            time_stamp: None, edited: None
+        let comment_two = NewComment {
+            post_id: POST_ID,
+            commenter_id: COMMENTER_ID_TWO,
+            comment_reply_id: Some(comment_one_id),
+            body: FIRST_BODY.to_string()
         };
 
         assert_eq!(Ok(()), db.create_comment(comment_two).await);
@@ -653,32 +616,29 @@ mod test {
             .find(|c| predicate(c) && c.comment_reply_id.is_some_and(|id| id == comment_one_id))
             .unwrap();
 
-        assert_eq!(true, retrieved_comment_two.id.is_some());
         assert_eq!(POST_ID, retrieved_comment_two.post_id);
         assert_eq!(COMMENTER_ID_TWO, retrieved_comment_two.commenter_id);
         assert_eq!(FIRST_BODY, retrieved_comment_two.body);
         assert_eq!(Some(comment_one_id), retrieved_comment_two.comment_reply_id);
-        assert_eq!(Some(0), retrieved_comment_two.likes);
-        assert_eq!(true, retrieved_comment_two.time_stamp.is_some());
-        assert_eq!(Some(MySqlBool(false)), retrieved_comment_two.edited);
+        assert_eq!(0, retrieved_comment_two.likes);
+        assert_eq!(MySqlBool(false), retrieved_comment_two.edited);
 
-        let comment_two_id = retrieved_comment_two.id.unwrap();
+        let comment_two_id = retrieved_comment_two.id;
 
         // set first test comment as "[DELETED]", where second test comment is a reply to it
         assert_eq!(Ok(()), db.update_comment_body(comment_one_id, "[DELETED]".to_string()).await);
         let comments_after_delete = db.read_comments_of_post(POST_ID).await.unwrap();
         let comment_one_deleted = comments_after_delete
             .iter()
-            .find(|c| c.id.is_some_and(|cid| cid.eq(&comment_one_id)));
+            .find(|c| c.id.eq(&comment_one_id));
         assert_eq!(true, comment_one_deleted.is_some());
         let comment_one_deleted = comment_one_deleted.unwrap();
         assert_eq!(POST_ID, comment_one_deleted.post_id);
         assert_eq!(COMMENTER_ID_ONE, comment_one_deleted.commenter_id);
         assert_eq!("[DELETED]", comment_one_deleted.body);
         assert_eq!(None, comment_one_deleted.comment_reply_id);
-        assert_eq!(Some(0), comment_one_deleted.likes);
-        assert_eq!(true, comment_one_deleted.time_stamp.is_some());
-        assert_eq!(Some(MySqlBool(true)), comment_one_deleted.edited);
+        assert_eq!(0, comment_one_deleted.likes);
+        assert_eq!(MySqlBool(true), comment_one_deleted.edited);
 
         // Actually delete test comments
         assert_eq!(Ok(()), db.delete_comment(comment_two_id.clone()).await);  // reply first (fk)
@@ -686,7 +646,7 @@ mod test {
         assert_eq!(0, db.read_comments_of_post(POST_ID).await
             .unwrap()
             .iter()
-            .filter(|c| c.id.eq(&Some(comment_one_id)) || c.id.eq(&Some(comment_two_id)))
+            .filter(|c| c.id.eq(&comment_one_id) || c.id.eq(&comment_two_id))
             .count()
         );
     }

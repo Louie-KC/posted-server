@@ -9,12 +9,43 @@ use serde::{Serialize, Deserialize};
 #[sqlx(transparent)]
 pub struct MySqlBool (pub bool);
 
-#[derive(sqlx::FromRow, Debug, Deserialize)]
+// Request bodies from the user
+
+#[derive(Debug, Deserialize)]
 pub struct Account {
-    pub id: Option<u64>,
     pub username: String,
-    pub password: String,
+    pub password: String
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AccountPasswordUpdate {
+    pub username: String,
+    pub old_password: String,
+    pub new_password: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewPost {
+    pub poster_id: u64,
+    pub title: String,
+    pub body: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewComment {
+    pub post_id: u64,
+    pub commenter_id: u64,
+    pub comment_reply_id: Option<u64>,
+    pub body: String
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostCommentUpdate {
+    pub account_id: u64,
+    pub new_body: String
+}
+
+// From the DB/To the user
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct AccountFromDB {
@@ -23,28 +54,30 @@ pub struct AccountFromDB {
     pub password_hash: String
 }
 
-#[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
+#[derive(sqlx::FromRow, Debug, Serialize)]
 pub struct Post {
-    pub id: Option<u64>,
+    pub id: u64,
     pub poster_id: u64,
     pub title: String,
     pub body: String,
-    pub likes: Option<u64>,
-    pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: Option<MySqlBool>
+    pub likes: u64,
+    pub time_stamp: DateTime<Utc>,
+    pub edited: MySqlBool
 }
 
-#[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
+#[derive(sqlx::FromRow, Debug, Serialize)]
 pub struct Comment {
-    pub id: Option<u64>,
+    pub id: u64,
     pub post_id: u64,
     pub commenter_id: u64,
     pub body: String,
     pub comment_reply_id: Option<u64>,
-    pub likes: Option<u64>,
-    pub time_stamp: Option<DateTime<Utc>>,
-    pub edited: Option<MySqlBool>
+    pub likes: u64,
+    pub time_stamp: DateTime<Utc>,
+    pub edited: MySqlBool
 }
+
+// Both to and from user & DB
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
 pub struct PostLike {
@@ -60,20 +93,9 @@ pub struct CommentLike {
     pub liked: bool
 }
 
+// Aux
+
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
 pub struct AccountID {
     pub account_id: u64
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AccountPasswordUpdate {
-    pub username: String,
-    pub old_password: String,
-    pub new_password: String
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct PostCommentUpdate {
-    pub account_id: u64,
-    pub new_body: String
 }
