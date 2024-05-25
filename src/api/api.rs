@@ -143,8 +143,8 @@ pub async fn change_password(
         Err(_) => return HttpResponse::InternalServerError().finish(),
     };
 
-    if let Err(err_response) = verify_token(old_account_details.id, bearer.token(), auth).await {
-        return err_response;
+    if let Err(response) = verify_username_token(old_account_details.id, &username, bearer.token(), auth).await {
+        return response
     }
 
     let old_pw_hash = match PasswordHash::new(&old_account_details.password_hash) {
@@ -461,9 +461,23 @@ pub async fn verify_token(
     token_str: &str,
     auth: Data<Mutex<AuthService>>
 ) -> Result<(), HttpResponse> {
-    match auth.lock().unwrap().validate(account_id, token_str).await {
+    todo!();
+    match auth.lock().unwrap().validate(account_id, token_str, "a").await {
         Ok(true)  => Ok(()),
         Ok(false) => Err(HttpResponse::Unauthorized().finish()),
         Err(_)    => Err(HttpResponse::Unauthorized().reason("Invalid token").finish()),
+    }
+}
+
+async fn verify_username_token(
+    user_id: u64,
+    username: &str,
+    token_str: &str,
+    auth: Data<Mutex<AuthService>>
+) -> Result<(), HttpResponse> {
+    match auth.lock().unwrap().validate(user_id, username, token_str).await {
+        Ok(true)  => Ok(()),
+        Ok(false) => Err(HttpResponse::Unauthorized().finish()),
+        Err(_)    => Err(HttpResponse::BadRequest().reason("Invalid token format").finish())
     }
 }

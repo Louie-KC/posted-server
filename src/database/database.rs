@@ -104,7 +104,7 @@ impl Database {
 
     pub async fn read_account_by_username(&self, username: &str) -> DBResult<AccountFromDB> {
         let result = sqlx::query_as!(AccountFromDB,
-            "SELECT CAST(id AS UNSIGNED) as 'id', '' as 'username', password_hash
+            "SELECT CAST(id AS UNSIGNED) as 'id', username, password_hash
             FROM Account
             WHERE username = ?
             LIMIT 1;", username)

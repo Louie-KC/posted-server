@@ -4,6 +4,8 @@ use uuid::Uuid;
 
 use redis::{aio::MultiplexedConnection, AsyncCommands, ConnectionLike, Pipeline};
 
+use super::error::CacheErr;
+
 pub struct Entry {
     pub key: String,
     pub value: String,
@@ -52,6 +54,17 @@ impl Cache {
         match client.check_connection() {
             true  => Ok(Cache { client: client }),
             false => Err(())
+        }
+    }
+
+    pub async fn get(&self, key: &str) -> Result<String, CacheErr> {
+        let mut conn = match self.get_async_conn().await {
+            Ok(conn) => conn,
+            Err(_) => return Err(CacheErr::AsyncConnFailure),
+        };
+        match conn.get(key).await {
+            Ok(value) => Ok(value),
+            Err(re) => Err(CacheErr::from(re))
         }
     }
 

@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::cache::cache::{Cache, Entry};
+use crate::cache::{cache::{Cache, Entry}, error::CacheErr};
 
 const DAY_IN_SECONDS: u64 = 60 * 60 * 12;
 
@@ -21,15 +21,18 @@ impl RedisAuth {
             Ok(_)  => Ok(uuid),
             Err(_) => Err(()),
         }
-        // let entry = Entry {
-        //     uuid: uuid,
-        //     user_id: user_id,
-        //     expiry_sec: DAY_IN_SECONDS
-        // };
-        // match self.redis_cache.set_single(entry, false, true).await {
-        //     Ok(_) => Ok(uuid),
-        //     Err(_) => Err(()),
-        // }
+    }
+
+    pub async fn validate_username(&self, username: &str, token: Uuid) -> Result<bool, ()> {
+        let value = match self.redis_cache.get(&token.to_string()).await {
+            Ok(value) => value,
+            Err(CacheErr::NilResponse) => return Ok(false),
+            Err(_) => return Err(())
+        };
+
+        let (stored_username, _) = separate_token_result(value)?;
+
+        Ok(stored_username.eq(username))
     }
 
     /// Determines whether a `user_id` has a token mapped to it, and if it so, compares
@@ -50,4 +53,32 @@ fn create_token_to_user_entry(token: &Uuid, username: &str, user_id: u64) -> Ent
 
 fn create_user_to_token_entry(username: &str, token: &Uuid, user_id: u64) -> Entry {
     Entry::new(username.to_string(), format!("{}!{}", token.to_string(), user_id), DAY_IN_SECONDS)
+}
+
+/// `value` in the format of: `<username>!<user_id>`
+/// 
+/// If successful, returns: (Username, user_id)
+fn separate_token_result(value: String) -> Result<(String, u64), ()> {
+    let (left, right) = match value.split_once("!") {
+        Some((l, r)) => (l, r),
+        None => return Err(())
+    };
+
+    if left.is_empty() || right.is_empty() || right.contains("!") {
+        return Err(())
+    }
+
+    match right.parse::<u64>() {
+        Ok(id) => Ok((left.to_string(), id)),
+        Err(_) => Err(())
+    }
+}
+
+/// `value` in the format of: `<token>!<user_id>`
+fn _separate_user_result(value: String) -> Result<(Uuid, u64), ()> {
+    let (left, right) = separate_token_result(value)?;
+    match Uuid::parse_str(&left) {
+        Ok(uuid) => Ok((uuid, right)),
+        Err(_) => Err(())
+    }
 }

@@ -81,7 +81,7 @@ impl AuthService {
         }
     }
 
-    pub async fn validate(&mut self, user_id: u64, token_str: &str) -> Result<bool, ()> {
+    pub async fn validate(&mut self, user_id: u64, username: &str, token_str: &str) -> Result<bool, ()> {
         let token = match Uuid::parse_str(token_str) {
             Ok(uuid) => uuid,
             Err(_) => return Err(()),
@@ -97,7 +97,7 @@ impl AuthService {
                 Ok(store.validate(user_id, token))
             },
             Store::Online(redis)  => {
-                let result = redis.validate(user_id, token).await;
+                let result = redis.validate_username(username, token).await;
                 if let Ok(is_valid) = result {
                     return Ok(is_valid)
                 } else {
