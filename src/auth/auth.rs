@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use log::{info, warn};
 use uuid::Uuid;
 
-use crate::cache::cache::{Cache, UserToken};
+use crate::cache::cache::{Cache, Entry};
 use super::backup_auth::OfflineAuth;
 use super::redis_auth::RedisAuth;
 
@@ -56,7 +56,7 @@ impl AuthService {
     
     }
 
-    pub async fn generate_user_token(&mut self, user_id: u64) -> Result<Uuid, ()> {
+    pub async fn generate_user_token(&mut self, user_id: u64, username: &str) -> Result<Uuid, ()> {
         if let Store::Offline(_) = &self.store {
             self.maybe_reconnect().await;
         }
@@ -67,7 +67,7 @@ impl AuthService {
                 Ok(store.generate_for_user(user_id))
             },
             Store::Online(redis)  => {
-                let result = redis.generate_for_user(user_id).await;
+                let result = redis.generate_for_user(user_id, username).await;
                 if let Ok(stored_uuid) = result {
                     Ok(stored_uuid)
                 } else {
@@ -132,7 +132,11 @@ fn try_connect(addr: &str) -> Result<Cache, ()> {
 
 async fn migrate_to_online(offline: &OfflineAuth, online: &Cache) -> Result<(), ()> {
     let entries = offline.tokens.iter()
-                                .map(|entry| UserToken { user_id: *entry.0, uuid: *entry.1, expiry_sec: 120 })
+                                .map(|entry| Entry {
+                                    key: entry.0.to_string(),
+                                    value: entry.1.to_string(),
+                                    expiry_sec: 120
+                                })
                                 .collect();
     match online.set_multiple(entries, false, true).await {
         Ok(_)  => Ok(()),

@@ -50,7 +50,7 @@ pub struct PostCommentUpdate {
 #[derive(sqlx::FromRow, Debug)]
 pub struct AccountFromDB {
     pub id: u64,
-    pub username: Option<String>,
+    pub username: String,
     pub password_hash: String
 }
 

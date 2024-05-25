@@ -102,7 +102,7 @@ pub async fn login(
 
     match argon2.verify_password(data.password.as_bytes(), &parsed_pw_hash) {
         Ok(()) => {
-            let token = match auth.lock().unwrap().generate_user_token(account_details.id).await {
+            let token = match auth.lock().unwrap().generate_user_token(account_details.id, &account_details.username).await {
                 Ok(token) => token,
                 Err(_) => return HttpResponse::InternalServerError().finish()
             };
